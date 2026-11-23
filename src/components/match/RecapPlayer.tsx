@@ -28,6 +28,8 @@ export function RecapPlayer({ slides, matchId, shareUrl }: { slides: Slide[]; ma
   const [menu, setMenu] = useState(false);
   const [status, setStatus] = useState<ShareStatus>('idle');
   const touch = useRef<{ x: number; y: number } | null>(null);
+  const stage = useRef<HTMLDivElement | null>(null);
+  const shown = useRef(0);
   const count = slides.length;
   const i = Math.min(index, count - 1);
 
@@ -35,6 +37,16 @@ export function RecapPlayer({ slides, matchId, shareUrl }: { slides: Slide[]; ma
 
   useEffect(() => { try { localStorage.setItem(MODE_KEY, mode); } catch { /* ignore */ } }, [mode]);
   useEffect(() => setIndex(0), [matchId]);
+
+  // a new slide starts at the top of the stage: bring the top into view when it is above the screen
+  useEffect(() => {
+    if (shown.current === i) return;
+    shown.current = i;
+    const el = stage.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    if (top < 0) window.scrollTo({ top: window.scrollY + top - 72, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }, [i]);
 
   // keyboard: arrows (not while typing), space toggles autoplay
   useEffect(() => {
@@ -138,7 +150,6 @@ export function RecapPlayer({ slides, matchId, shareUrl }: { slides: Slide[]; ma
     );
   }
 
-  const slide = slides[i];
   return (
     <div>
       {toolbar}
@@ -154,10 +165,17 @@ export function RecapPlayer({ slides, matchId, shareUrl }: { slides: Slide[]; ma
           </button>
         ))}
       </div>
-      <div className="relative mt-2" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        <section key={slide.id} className="panel fade-up min-h-[460px] p-4 sm:p-6" aria-roledescription="slide" aria-label={`${slide.title} · ${t('recap.of', { n: i + 1, total: count })}`}>
-          {slide.node}
-        </section>
+      <div ref={stage} className="recap-stage relative mt-2 overflow-x-clip" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        {slides.map((s, k) => {
+          const active = k === i;
+          return (
+            <section key={s.id} className={`recap-slide panel p-4 sm:p-6 ${active ? 'is-active' : k < i ? 'is-before' : ''}`}
+              aria-roledescription="slide" aria-hidden={!active} {...(active ? {} : { inert: '' })}
+              aria-label={`${s.title} · ${t('recap.of', { n: k + 1, total: count })}`}>
+              {s.node}
+            </section>
+          );
+        })}
       </div>
       <div className="mt-3 flex items-center justify-between">
         <button type="button" onClick={() => { go(-1); setPlaying(false); }} disabled={i === 0} className="btn btn-ghost btn-sm disabled:opacity-40" aria-label={t('recap.prev')}>

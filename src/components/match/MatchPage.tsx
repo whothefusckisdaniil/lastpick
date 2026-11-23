@@ -27,7 +27,7 @@ import { useSlides, type BuildInfo, type DraftInfo, type Loadable, type RecapCtx
 const ME_KEY = 'lp.dotaId';
 
 type LoadStatus = { kind: 'idle' } | { kind: 'loading' } | { kind: 'error'; error: MatchErrorKind } | { kind: 'ready'; model: MatchModel };
-type ParseStatus = { kind: 'idle' } | { kind: 'polling'; attempt: number } | { kind: 'timeout' } | { kind: 'failed' };
+type ParseStatus = { kind: 'idle' } | { kind: 'polling'; attempt: number; since: number } | { kind: 'timeout' } | { kind: 'failed' };
 
 function readParams() {
   const p = new URLSearchParams(window.location.search);
@@ -60,6 +60,35 @@ function resolveMe(m: MatchModel, me: string | null): number | null {
 
 const prettyItem = (key: string) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
+/** Seconds → "1:05". */
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+/** While OpenDota parses the replay: what is happening, time spent, a way out. */
+function ParseWait({ since, onSkip }: { since: number | null; onSkip: () => void }) {
+  const { t } = useI18n();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const sec = since ? Math.max(0, (now - since) / 1000) : 0;
+  // never full: approaches the end over the usual 1–3 minutes
+  const fill = 1 - Math.exp(-sec / 90);
+  return (
+    <section className="panel fade-up mt-4 flex flex-col items-center gap-4 p-6 text-center sm:p-10" aria-live="polite">
+      <DiamondLoader label={t('match.parseWait.title')} />
+      <p className="max-w-md text-[14px] leading-5 text-muted">{t('match.parseWait.body')}</p>
+      <div className="w-full max-w-sm">
+        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+          <div className="parse-bar h-full rounded-full bg-accent" style={{ width: `${Math.round(fill * 100)}%` }} />
+        </div>
+        <p className="tnum mt-2 text-[12px] text-muted">{t('match.parseWait.elapsed', { time: clock(sec) })}</p>
+      </div>
+      <button type="button" onClick={onSkip} className="btn btn-ghost btn-sm">{t('match.parseWait.skip')}</button>
+    </section>
+  );
+}
+
 export default function MatchPage() {
   const i18n = useI18n();
   const { t } = i18n;
@@ -70,6 +99,8 @@ export default function MatchPage() {
   const [meParam, setMeParam] = useState<string | null>(initial.me ?? storedMe());
   const [load, setLoad] = useState<LoadStatus>({ kind: 'idle' });
   const [parse, setParse] = useState<ParseStatus>({ kind: 'idle' });
+  /** The viewer chose not to wait for the parse (it still runs and replaces the page when done). */
+  const [skipParse, setSkipParse] = useState(false);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [patches, setPatches] = useState<{ id: number; name: string }[] | null>(null);
   const [draft, setDraft] = useState<Loadable<DraftInfo>>({ status: 'loading' });
@@ -89,12 +120,22 @@ export default function MatchPage() {
     if (!id || !heroById) return;
     abortRef.current?.abort();
     setParse({ kind: 'idle' });
+    setSkipParse(false);
     const cached = cachedMatch(id);
     setLoad(cached ? { kind: 'ready', model: cached } : { kind: 'loading' });
     let alive = true;
+    // no parsed replay yet: ask OpenDota for one right away, the page waits for it
     fetchMatch(id, keyOf)
-      .then((model) => alive && setLoad({ kind: 'ready', model }))
-      .catch((e) => alive && !cached && setLoad({ kind: 'error', error: e instanceof MatchError ? e.kind : 'network' }));
+      .then((model) => {
+        if (!alive) return;
+        setLoad({ kind: 'ready', model });
+        if (!model.parsed) startParse(id);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        if (!cached) setLoad({ kind: 'error', error: e instanceof MatchError ? e.kind : 'network' });
+        else if (!cached.parsed) startParse(id);
+      });
     return () => { alive = false; };
   }, [id, heroById, keyOf, nonce]);
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -218,15 +259,15 @@ export default function MatchPage() {
     if (p.accountId) { try { localStorage.setItem(ME_KEY, value); } catch { /* ignore */ } }
   }
 
-  async function askParse() {
-    if (!id) return;
+  async function startParse(target: number) {
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
-    setParse({ kind: 'polling', attempt: 0 });
+    const since = Date.now();
+    setParse({ kind: 'polling', attempt: 0, since });
     try {
-      await requestParse(id);
-      const m = await waitForParse(id, keyOf, ac.signal, (attempt) => setParse({ kind: 'polling', attempt: attempt + 1 }));
+      await requestParse(target);
+      const m = await waitForParse(target, keyOf, ac.signal, (attempt) => setParse({ kind: 'polling', attempt: attempt + 1, since }));
       if (ac.signal.aborted) return;
       if (m) { setLoad({ kind: 'ready', model: m }); setParse({ kind: 'idle' }); } else setParse({ kind: 'timeout' });
     } catch {
@@ -266,6 +307,8 @@ export default function MatchPage() {
     };
   }, [model, analysis, heroById, i18n, heroOf, me, draft, build, buildSlot, openDraft, patches, site, t, norms]);
   const slides = useSlides(ctx);
+  // an unparsed match: wait for the parse instead of showing the short version
+  const waiting = !!model && !model.parsed && !skipParse && parse.kind !== 'timeout' && parse.kind !== 'failed';
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -298,7 +341,11 @@ export default function MatchPage() {
         </div>
       )}
 
-      {model && ctx && (
+      {model && ctx && waiting && (
+        <ParseWait since={parse.kind === 'polling' ? parse.since : null} onSkip={() => setSkipParse(true)} />
+      )}
+
+      {model && ctx && !waiting && (
         <div className="mt-4">
           {!model.parsed && (
             <div className="notice mb-4 flex-col !items-start gap-2">
@@ -309,7 +356,7 @@ export default function MatchPage() {
                   {t('match.parsing', { n: parse.attempt })}
                 </span>
               ) : (
-                <button type="button" onClick={askParse} className="btn btn-accent btn-sm">{t('match.requestParse')}</button>
+                <button type="button" onClick={() => id && startParse(id)} className="btn btn-accent btn-sm">{t('match.requestParse')}</button>
               )}
               {parse.kind === 'timeout' && <span className="text-[13px] text-muted">{t('match.parseTimeout')}</span>}
               {parse.kind === 'failed' && <span className="text-[13px] text-neg">{t('match.parseFailed')}</span>}
