@@ -635,6 +635,27 @@ export async function fetchMatchupsFromStratz(heroIds, windowInfo, { token, log 
 }
 
 /** The only files a refresh publishes (ТЗ №77: Counterpick data only). */
+/** Same-team tables: above this share of 0-game pairs the data is degraded. */
+export const SYNERGY_MAX_ZERO_SHARE = 0.05;
+/** How long the last good synergy may stand in for degraded data. */
+export const SYNERGY_KEEP_DAYS = 7;
+
+/** Share of pair rows with no games, pairs with a brand-new hero left out. */
+export function zeroPairShare(table, newHeroIds = []) {
+  const fresh = new Set(newHeroIds.map(Number));
+  let rows = 0;
+  let zero = 0;
+  for (const [id, list] of Object.entries(table ?? {})) {
+    if (fresh.has(Number(id))) continue;
+    for (const r of list) {
+      if (fresh.has(r.hero_id)) continue;
+      rows += 1;
+      if (!(r.games_played > 0)) zero += 1;
+    }
+  }
+  return rows ? zero / rows : 1;
+}
+
 /** STRATZ returned (almost) no games for the window: an upstream outage. */
 export class UpstreamEmptyError extends Error {
   constructor(message) {
@@ -753,6 +774,8 @@ export async function buildDataset({
   fetchPositions = fetchPositionsFromStratz,
   // Optional layer (per-position win rates by rank); null = skipped.
   fetchRoleStats = null,
+  /** Last published synergy (fallback when STRATZ's same-team data is degraded). */
+  loadPreviousSynergy = null,
   now = new Date(),
   log = console.log,
 } = {}) {
@@ -840,6 +863,7 @@ export async function buildDataset({
   // fetcher without them publishes the counterpick data alone.
   let synergy = null;
   let synergyByBracket = null;
+  let synergyKeptFrom = null;
   if (synergyComplete) {
     synergy = symmetrizeSynergyTable(sumBracketTables(rawSynergyByBracket));
     // zero-game pairs allowed: right after a patch a rare pair may not have met yet
@@ -854,6 +878,22 @@ export async function buildDataset({
       }
     }
     log(`    Synergy tables passed (all ranks + ${BRACKETS.length} brackets)`);
+    // Structurally valid is not enough: on Nov 21 STRATZ returned 0 games for
+    // 60–70% of the same-team pairs in Crusader–Ancient (its outage started
+    // with the "with" rows), which emptied the ally-aware recommendations.
+    const worst = [['ALL', synergy], ...BRACKETS.map((b) => [b, synergyByBracket[b]])]
+      .map(([name, t]) => [name, zeroPairShare(t, newHeroIds)])
+      .sort((a, b) => b[1] - a[1])[0];
+    if (worst[1] > SYNERGY_MAX_ZERO_SHARE) {
+      const prev = loadPreviousSynergy ? loadPreviousSynergy() : null;
+      const prevAge = prev ? (now.getTime() - Date.parse(prev.generatedAt)) / 86_400_000 : Infinity;
+      const prevOk = prev && prevAge < SYNERGY_KEEP_DAYS && zeroPairShare(prev.synergy, newHeroIds) <= SYNERGY_MAX_ZERO_SHARE
+        && BRACKETS.every((b) => prev.synergyByBracket?.[b] && zeroPairShare(prev.synergyByBracket[b], newHeroIds) <= SYNERGY_MAX_ZERO_SHARE);
+      log(`    WARNING: STRATZ same-team data is degraded (${worst[0]}: ${Math.round(worst[1] * 100)}% of pairs have 0 games) — ${prevOk ? `keeping the synergy published ${prev.generatedAt}` : 'publishing without synergy'}`);
+      synergy = prevOk ? prev.synergy : null;
+      synergyByBracket = prevOk ? prev.synergyByBracket : null;
+      if (prevOk) synergyKeptFrom = prev.generatedAt;
+    }
   } else {
     log('    WARNING: no same-team data from the fetcher — publishing without synergy');
   }
@@ -920,6 +960,7 @@ export async function buildDataset({
       ? {
           files: ['synergy.json', 'synergy-by-bracket.json'],
           perspective: 'wins = wins of the team with both heroes (same-team "with" rows, both directions averaged)',
+          ...(synergyKeptFrom ? { keptFrom: synergyKeptFrom } : {}),
         }
       : null,
     roleStats: roleStats
@@ -1008,6 +1049,15 @@ async function main() {
       fetchPositionsFromStratz(heroIds, windowInfo, { ...opts, token }),
     fetchRoleStats: (heroIds, windowInfo, opts) =>
       fetchRoleStatsFromStratz(heroIds, windowInfo, { ...opts, token }),
+    loadPreviousSynergy: () => {
+      try {
+        const read = (f) => JSON.parse(readFileSync(path.join(DATA_DIR, f), 'utf8'));
+        const meta = read('meta.json');
+        return { generatedAt: meta.synergy?.keptFrom ?? meta.generatedAt, synergy: read('synergy.json'), synergyByBracket: read('synergy-by-bracket.json') };
+      } catch {
+        return null;
+      }
+    },
   });
   const { heroes, meta } = result;
 

@@ -20,3 +20,20 @@ describe('STRATZ outage (empty weeks)', () => {
     expect(upstreamOutageVerdict('2026-11-15T00:00:00Z', now, 10)).toBe('KEEP');
   });
 });
+
+import { zeroPairShare, SYNERGY_MAX_ZERO_SHARE } from './update-data-stratz.mjs';
+import synergyAll from '../public/data/synergy.json';
+import synergyByBracket from '../public/data/synergy-by-bracket.json';
+
+describe('degraded same-team data', () => {
+  const r = (h: number, g: number) => ({ hero_id: h, games_played: g, wins: 0 });
+  it('counts 0-game pairs, a brand-new hero left out', () => {
+    expect(zeroPairShare({ 1: [r(2, 0), r(3, 10)], 2: [r(1, 0), r(3, 5)] })).toBe(0.5);
+    expect(zeroPairShare({ 1: [r(2, 0), r(3, 10)], 2: [r(1, 0), r(3, 5)] }, [2])).toBe(0);
+  });
+
+  it('the published synergy is healthy in every rank', () => {
+    expect(zeroPairShare(synergyAll)).toBeLessThanOrEqual(SYNERGY_MAX_ZERO_SHARE);
+    for (const t of Object.values(synergyByBracket)) expect(zeroPairShare(t)).toBeLessThanOrEqual(SYNERGY_MAX_ZERO_SHARE);
+  });
+});
