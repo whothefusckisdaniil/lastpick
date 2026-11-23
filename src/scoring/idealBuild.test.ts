@@ -127,3 +127,29 @@ describe('farming items are alternatives', () => {
     expect(keys).toEqual(expect.arrayContaining(['radiance', 'mjollnir']));
   });
 });
+
+describe('counter-only items', () => {
+  const ITEMS4: Record<number, [string, string, string[]?]> = {
+    158: ['mjollnir', 'Mjollnir'], 263: ['hurricane_pike', 'Hurricane Pike'], 116: ['black_king_bar', 'Black King Bar'],
+    135: ['monkey_king_bar', 'Monkey King Bar'], 140: ['greater_crit', 'Daedalus'], 152: ['invis_sword', 'Shadow Blade'],
+    164: ['mask_of_madness', 'Mask of Madness'],
+  };
+  const SN = {
+    m: 9583, low: false, start: [], talents: [], skills: [], boots: [],
+    items: [[164, 0.338, 12, 50], [158, 0.431, 24, 50], [263, 0.425, 24, 50], [116, 0.23, 32, 50], [135, 0.22, 34, 50],
+      [140, 0.226, 36, 50], [152, 0.238, 28, 50]],
+  } as unknown as Build;
+
+  it('MKB is no filler without evasion in the draft; listed as on demand', () => {
+    const ib = idealBuild(SN, (id) => ITEMS4[id]);
+    expect(ib.slots.map((s) => s.key)).not.toContain('monkey_king_bar');
+    expect(ib.onDemand.map((x) => x.key)).toEqual(['monkey_king_bar']);
+  });
+
+  it('MKB takes a slot when the draft asks for it', () => {
+    const mkb = { key: 'monkey_king_bar', name: 'MKB', score: 2, buildPct: 0.22, reasons: [] } as ItemSuggestion;
+    const ib = idealBuild(SN, (id) => ITEMS4[id], [mkb]);
+    expect(ib.slots.find((s) => s.key === 'monkey_king_bar')?.kind).toBe('draft');
+    expect(ib.onDemand).toEqual([]);
+  });
+});

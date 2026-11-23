@@ -40,11 +40,14 @@ export interface IdealSlot {
 
 export interface IdealBuild {
   boots: { id: number; pct: number; minute: number } | null;
+  /** Counter items this hero buys that this draft does not call for (shown
+   *  apart with their condition, not in a slot). */
+  onDemand: { id: number; key: string; pct: number; minute: number }[];
   slots: IdealSlot[];
   shard: { id: number; pct: number; minute: number } | null;
 }
 
-export const IDEAL = { slots: 6, corePct: 0.35, solidCorePct: 0.5, laningMinute: 12, draftSlots: 3, teamSlots: 2, teamMinPct: 0.05, upgradeRatio: 0.5, shardMinPct: 0.1 } as const;
+export const IDEAL = { slots: 6, corePct: 0.35, solidCorePct: 0.5, laningMinute: 12, draftSlots: 3, teamSlots: 2, teamMinPct: 0.05, upgradeRatio: 0.5, shardMinPct: 0.1, onDemandMinPct: 0.05 } as const;
 
 const NO_SLOT = new Set(['aghanims_shard', 'ultimate_scepter_2']);
 
@@ -52,6 +55,19 @@ const NO_SLOT = new Set(['aghanims_shard', 'ultimate_scepter_2']);
  *  OR Battle Fury), rarely two. The data only has each item's own share, not
  *  how often they are bought together, so a non-core one of these is dropped
  *  when a more popular one is in the build. Two core ones (≥ 35%) both stay. */
+/**
+ * Items bought only as an answer to a specific enemy (MKB vs evasion, Pipe vs
+ * magic burst, Spirit Vessel vs heals…). Unless the hero buys one in ≥ 35% of
+ * games (core), it takes a slot only when the draft rules ask for it — never
+ * as a filler — and is otherwise listed under "on demand" with its condition.
+ * The value is the condition's string key (build.when.*).
+ */
+export const COUNTER_ONLY: Record<string, string> = {
+  monkey_king_bar: 'evasion', nullifier: 'dispel', ghost: 'physical', heavens_halberd: 'physical',
+  crimson_guard: 'physical', pipe: 'magic', lotus_orb: 'targeted', spirit_vessel: 'heal', mage_slayer: 'magic',
+  aeon_disk: 'burst', sphere: 'targeted', gem: 'invis', dust: 'invis', ward_sentry: 'invis',
+};
+
 export const FARM_ALTERNATIVES = new Set(['radiance', 'maelstrom', 'mjollnir', 'gleipnir', 'bfury']);
 
 export function idealBuild(
@@ -115,11 +131,17 @@ export function idealBuild(
   // Team slots: the slots left after core and draft (core is never displaced)
   // go first to items this hero buys (≥ 5%) that answer what the team lacks.
   byPct
-    .filter((x) => x[1] < IDEAL.corePct && x[1] >= IDEAL.teamMinPct && needOf(x))
+    .filter((x) => x[1] < IDEAL.corePct && x[1] >= IDEAL.teamMinPct && needOf(x) && !(key(x[0]) in COUNTER_ONLY))
     .slice(0, IDEAL.teamSlots)
     .forEach((x) => add(x, 'team', undefined, needOf(x)));
   // the rest: popular items, the ones the team needs first
-  [...byPct].sort((a, b) => (needOf(b) ? 1.5 : 1) * b[1] - (needOf(a) ? 1.5 : 1) * a[1]).forEach((x) => add(x, 'situational'));
+  // the rest: popular items, the ones the team needs first — never a
+  // counter-only item the draft did not ask for
+  const filler = (x: (typeof pool)[number]) => !(key(x[0]) in COUNTER_ONLY);
+  [...byPct].filter(filler).sort((a, b) => (needOf(b) ? 1.5 : 1) * b[1] - (needOf(a) ? 1.5 : 1) * a[1]).forEach((x) => add(x, 'situational'));
+  const onDemand = byPct
+    .filter((x) => !filler(x) && !chosen.has(x[0]) && x[1] >= IDEAL.onDemandMinPct)
+    .map((x) => ({ id: x[0], key: key(x[0]), pct: x[1], minute: x[2] }));
 
   const upgraded = build.boots.filter(([id]) => key(id) !== 'boots');
   const b = (upgraded.length ? upgraded : build.boots)[0];
@@ -127,6 +149,7 @@ export function idealBuild(
 
   return {
     boots: b ? { id: b[0], pct: b[1], minute: b[2] } : null,
+    onDemand,
     slots: [...chosen.values()].sort((a, b) => a.minute - b.minute),
     // Purchases only: a shard from a Tormentor is free and invisible here, so
     // the real share is higher — a low bar, and the UI says so.

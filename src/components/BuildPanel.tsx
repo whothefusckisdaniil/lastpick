@@ -6,7 +6,7 @@ import type { StringKey } from '../i18n/strings';
 import { HeroPortrait } from './HeroPortrait';
 import { DiamondLoader } from './Brand';
 import { suggestItems, type ItemSuggestion } from '../scoring/itemRules';
-import { idealBuild } from '../scoring/idealBuild';
+import { COUNTER_ONLY, idealBuild } from '../scoring/idealBuild';
 import { teamNeeds, type TeamNeed } from '../scoring/teamNeeds';
 
 const CDN = 'https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react';
@@ -386,6 +386,27 @@ function IdealRow({ build, itemOf, suggestions, needs }: {
         )}
       </ol>
       {ib.shard && <p className="mt-2 text-[11px] leading-[14px] text-muted">{t('build.shardNote', { min: ib.shard.minute, pct: Math.round(ib.shard.pct * 100) })}</p>}
+      {ib.onDemand.length > 0 && (
+        <div className="mt-3">
+          <h4 className="label mb-1.5">{t('build.onDemand')}</h4>
+          <ul className="grid gap-1.5">
+            {ib.onDemand.map((x) => {
+              const meta = itemOf(x.id);
+              return (
+                <li key={x.id} className="flex items-center gap-2.5 text-[13px] leading-[18px]">
+                  <span className="h-[26px] w-[36px] flex-none overflow-hidden rounded bg-surface-2">
+                    {meta && <img src={itemImg(meta[0])} alt="" width={36} height={26} loading="lazy" decoding="async" className="h-full w-full object-cover" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="font-semibold text-ink">{meta?.[1] ?? `#${x.id}`}</span>
+                    <span className="text-muted"> — {t(`build.when.${COUNTER_ONLY[x.key]}` as StringKey)}</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
       {needs.length > 0 && (
         <p className="mt-2 text-[13px] leading-[18px] text-muted">
           <span className="font-semibold text-ally">{t('team.title')}:</span> {needs.map(needText).join(' · ')}
