@@ -7,6 +7,9 @@ import { hasRealDraft, type MatchModel, type MatchObjective, type MatchPlayer } 
 import type { Swing, Verdict } from '../../match/analyze/story';
 import type { Award, Pos } from '../../match/analyze/players';
 import type { BuildReview, BuildRow } from '../../match/analyze/builds';
+import { fightScore, type FightSummary } from '../../match/analyze/fights';
+import type { Laning, LaneResult } from '../../match/analyze/lanes';
+import type { DeathCost, DeathsSummary } from '../../match/analyze/deaths';
 import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
 import type { RecapCard, RecapCardRow } from '../../share/matchCards';
@@ -38,6 +41,9 @@ export interface RecapCtx {
   swings: Swing[];
   economy: { radiant: { netWorth: number; share: Map<number, number> }; dire: { netWorth: number; share: Map<number, number> }; leader: MatchPlayer; carried: MatchPlayer };
   awards: Award[];
+  fights: FightSummary[];
+  laning: Laning | null;
+  deaths: DeathsSummary | null;
   draft: Loadable<DraftInfo>;
   build: Loadable<BuildInfo>;
   buildSlot: number;
@@ -652,13 +658,315 @@ export function awardsSlide(c: RecapCtx): Slide {
   };
 }
 
+/* ---------- shared bits for v2 ---------- */
+
+const clock = (sec: number) => `${Math.floor(Math.max(0, sec) / 60)}:${String(Math.max(0, Math.round(sec)) % 60).padStart(2, '0')}`;
+const names = (c: RecapCtx, slots: number[]) => slots.map((s) => heroName(c, c.m.players[s])).join(', ');
+
+function Faces({ c, slots, size = 28, dim }: { c: RecapCtx; slots: number[]; size?: number; dim?: boolean }) {
+  return (
+    <span className="flex flex-wrap gap-1">
+      {slots.map((s) => (
+        <span key={s} title={heroName(c, c.m.players[s])} className={`overflow-hidden rounded-md border-b-2 ${c.m.players[s].radiant ? 'border-pos' : 'border-neg'} ${dim ? 'opacity-60 grayscale' : ''} ${c.me === s ? 'ring-2 ring-accent' : ''}`} style={{ width: size, height: size }}>
+          {c.heroOf(c.m.players[s]) && <HeroPortrait hero={c.heroOf(c.m.players[s])!} fill />}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/* ---------- 3. laning ---------- */
+
+function lanesHead(c: RecapCtx, l: Laning): string {
+  const { t } = c.i18n;
+  const r = l.lanes.filter((x) => x.winner === 'radiant').length;
+  const d = l.lanes.filter((x) => x.winner === 'dire').length;
+  if (r === d) return t('lanes.headEven', { r, d });
+  return t('lanes.head', { team: teamName(c, r > d), n: Math.max(r, d), total: l.lanes.length });
+}
+
+function laneVerdict(c: RecapCtx, x: LaneResult): string {
+  return x.winner === 'even' ? c.i18n.t('lanes.even') : c.i18n.t('lanes.won', { team: teamName(c, x.winner === 'radiant') });
+}
+
+function LaneSide({ c, ps, radiant }: { c: RecapCtx; ps: LaneResult['radiant']; radiant: boolean }) {
+  const { t, number } = c.i18n;
+  if (!ps.length) return <div className="text-[12px] text-muted">{t('lanes.empty')}</div>;
+  return (
+    <ul className="grid gap-1">
+      {ps.map((p) => (
+        <li key={p.slot} className={`flex items-center gap-2 ${radiant ? '' : 'flex-row-reverse text-right'}`}>
+          <Portrait c={c} p={c.m.players[p.slot]} size={30} ring={c.me === p.slot} />
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold text-ink">{heroName(c, c.m.players[p.slot])}</div>
+            <div className="tnum text-[11px] leading-[14px] text-muted">{number(p.gold)} · {p.lh}/{p.dn}{p.eff != null && <span className="hidden sm:inline"> · {t('lanes.eff', { pct: Math.round(p.eff * 100) })}</span>}</div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function lanesSlide(c: RecapCtx, l: Laning): Slide {
+  const { t } = c.i18n;
+  return {
+    id: 'lanes',
+    title: t('slide.lanes'),
+    node: (
+      <div>
+        <Kicker>{t('slide.lanes')}</Kicker>
+        <Headline>{lanesHead(c, l)}</Headline>
+        <p className="mt-1 text-[12px] text-muted">{t('lanes.cols', { min: l.minute })}</p>
+        <ul className="mt-3 grid gap-2">
+          {l.lanes.map((x) => (
+            <li key={x.lane} className="panel-2 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="label">{t(`lanes.${x.lane}` as StringKey)}</span>
+                <span className={`text-[12px] font-semibold ${x.winner === 'radiant' ? 'text-pos' : x.winner === 'dire' ? 'text-neg' : 'text-muted'}`}>{laneVerdict(c, x)}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <LaneSide c={c} ps={x.radiant} radiant />
+                <LaneSide c={c} ps={x.dire} radiant={false} />
+              </div>
+            </li>
+          ))}
+        </ul>
+        {l.roamers.length > 0 && <p className="mt-3 text-[13px] text-muted">{t('lanes.roam', { names: names(c, l.roamers) })}</p>}
+        <Note>{t('lanes.note', { min: l.minute })}</Note>
+      </div>
+    ),
+    card: () => ({
+      kicker: t('slide.lanes'),
+      title: lanesHead(c, l),
+      subtitle: t('lanes.cols', { min: l.minute }),
+      rows: l.lanes.map((x) => {
+        const core = (ps: LaneResult['radiant']) => [...ps].sort((a, b) => b.gold - a.gold)[0];
+        const r = core(x.radiant);
+        const d = core(x.dire);
+        return {
+          hero: r ? c.heroOf(c.m.players[r.slot]) : d ? c.heroOf(c.m.players[d.slot]) : undefined,
+          title: `${t(`lanes.${x.lane}` as StringKey)}: ${x.radiant.length ? names(c, x.radiant.map((p) => p.slot)) : '—'} vs ${x.dire.length ? names(c, x.dire.map((p) => p.slot)) : '—'}`,
+          sub: `${r ? `${c.i18n.number(r.gold)} · ${r.lh}/${r.dn}` : '—'}  vs  ${d ? `${c.i18n.number(d.gold)} · ${d.lh}/${d.dn}` : '—'}`,
+          value: x.winner === 'even' ? '=' : x.winner === 'radiant' ? '▲' : '▼',
+          tone: (x.winner === 'radiant' ? 'pos' : x.winner === 'dire' ? 'neg' : 'muted') as 'pos' | 'neg' | 'muted',
+        };
+      }),
+      ...c.card,
+    }),
+  };
+}
+
+/* ---------- 5. teamfights ---------- */
+
+function fightsHead(c: RecapCtx): string {
+  const { t } = c.i18n;
+  const s = fightScore(c.fights);
+  if (s.radiant === s.dire) return t('fights.headEven', { a: s.radiant, b: s.dire });
+  return t('fights.head', { team: teamName(c, s.radiant > s.dire), n: Math.max(s.radiant, s.dire), total: c.fights.length });
+}
+
+function fightScoreText(f: FightSummary): string {
+  // the winner's kills first
+  return f.radiantWon === false ? `${f.radiantDeaths}:${f.direDeaths}` : `${f.direDeaths}:${f.radiantDeaths}`;
+}
+
+function FightRow({ c, f }: { c: RecapCtx; f: FightSummary }) {
+  const { t, lang } = c.i18n;
+  const [open, setOpen] = useState(false);
+  const tone = f.radiantWon === true ? 'bg-pos' : f.radiantWon === false ? 'bg-neg' : 'bg-line-2';
+  return (
+    <li className={`panel-2 overflow-hidden ${f.decisive ? '!border-accent' : ''}`}>
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-2.5 px-3 py-2 text-left">
+        <span className={`h-2.5 w-2.5 flex-none rounded-full ${tone}`} aria-hidden="true" />
+        <span className="tnum w-11 flex-none text-[13px] text-muted">{clock(f.start)}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+          {f.radiantWon == null ? t('fights.trade') : teamName(c, f.radiantWon)} <span className="tnum font-semibold">{fightScoreText(f)}</span>
+          {f.decisive && <span className="ml-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-accent">{t('fights.decisive')}</span>}
+        </span>
+        <span className={`tnum flex-none text-[13px] font-semibold ${f.goldSwing > 0 ? 'text-pos' : f.goldSwing < 0 ? 'text-neg' : 'text-muted'}`}>{f.goldSwing >= 0 ? '▲' : '▼'} {kGold(f.goldSwing, lang)}</span>
+        <span className={`flex-none text-muted transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden="true">›</span>
+      </button>
+      {open && (
+        <div className="grid gap-2 border-t border-line px-3 py-2.5 text-[12px] text-muted">
+          {f.dead.length > 0 && <div><div className="mb-1">{t('fights.dead')}</div><Faces c={c} slots={f.dead} dim /></div>}
+          {f.killers.length > 0 && <div><div className="mb-1">{t('fights.kills')}</div><Faces c={c} slots={f.killers.map((k) => k.slot)} /></div>}
+          {f.topDamage != null && <div>{t('fights.damage', { hero: heroName(c, c.m.players[f.topDamage]) })}</div>}
+          {f.buybacks.length > 0 && <div>{t('fights.buyback', { names: names(c, f.buybacks) })}</div>}
+        </div>
+      )}
+    </li>
+  );
+}
+
+export function fightsSlide(c: RecapCtx): Slide {
+  const { t, lang } = c.i18n;
+  const s = fightScore(c.fights);
+  return {
+    id: 'fights',
+    title: t('slide.fights'),
+    node: (
+      <div>
+        <Kicker>{t('slide.fights')}</Kicker>
+        {c.fights.length === 0 ? <p className="notice mt-3">{t('fights.none')}</p> : (
+          <>
+            <Headline>{fightsHead(c)}</Headline>
+            <div className="mt-3 flex h-2 gap-[2px] overflow-hidden rounded-full" role="img" aria-label={`${s.radiant}:${s.dire}`}>
+              {c.fights.map((f, k) => (
+                <i key={k} className={`block h-full flex-1 ${f.radiantWon === true ? 'bg-pos' : f.radiantWon === false ? 'bg-neg' : 'bg-line-2'} ${f.decisive ? 'ring-1 ring-accent' : ''}`} />
+              ))}
+            </div>
+            <p className="mt-2 text-[12px] text-muted">{t('fights.tap')}</p>
+            <ul className="mt-2 grid gap-1.5">{c.fights.map((f) => <FightRow key={f.start} c={c} f={f} />)}</ul>
+            <Note>{t('fights.note')}</Note>
+          </>
+        )}
+      </div>
+    ),
+    card: () => {
+      const top = [...c.fights].sort((a, b) => Number(b.decisive) - Number(a.decisive) || Math.abs(b.goldSwing) - Math.abs(a.goldSwing)).slice(0, 3).sort((a, b) => a.start - b.start);
+      return {
+        kicker: t('slide.fights'),
+        title: c.fights.length ? fightsHead(c) : t('fights.none'),
+        chart: c.m.goldAdv ? { values: c.m.goldAdv, topLabel: t('flow.ahead', { team: teamName(c, true) }), bottomLabel: t('flow.ahead', { team: teamName(c, false) }) } : undefined,
+        rows: top.map((f) => ({
+          title: `${clock(f.start)} · ${f.radiantWon == null ? t('fights.trade') : teamName(c, f.radiantWon)} ${fightScoreText(f)}${f.decisive ? ` · ${t('fights.decisive')}` : ''}`,
+          sub: f.dead.length ? `${t('fights.dead')}: ${names(c, f.dead)}` : undefined,
+          value: `${f.goldSwing >= 0 ? '▲' : '▼'} ${kGold(f.goldSwing, lang)}`,
+          tone: (f.goldSwing >= 0 ? 'pos' : 'neg') as 'pos' | 'neg',
+        })),
+        ...c.card,
+      };
+    },
+  };
+}
+
+/* ---------- 8. deaths and buybacks ---------- */
+
+function tookText(c: RecapCtx, d: DeathCost): string {
+  const { t } = c.i18n;
+  const parts: string[] = [];
+  if (d.took.ancient) parts.push(t('deaths.ancient'));
+  if (d.took.roshan) parts.push(t('flow.roshan'));
+  if (d.took.barracks) parts.push(t('flow.rax', { n: d.took.barracks }));
+  if (d.took.tower) parts.push(t('flow.towers', { n: d.took.tower }));
+  return parts.join(' + ');
+}
+
+function costText(c: RecapCtx, d: DeathCost): string {
+  return c.i18n.t('deaths.cost', { time: clock(d.time), hero: names(c, d.group), what: tookText(c, d) });
+}
+
+function deathsHead(c: RecapCtx, d: DeathsSummary): string {
+  const { t } = c.i18n;
+  if (!d.mostDead) return t('deaths.noneCostly');
+  const hero = heroName(c, c.m.players[d.mostDead.slot]);
+  return d.mostDead.deadSeconds != null
+    ? t('deaths.head', { hero, n: d.mostDead.deaths, min: Math.round(d.mostDead.deadSeconds / 60) })
+    : t('deaths.headShort', { hero, n: d.mostDead.deaths });
+}
+
+function DeathTimeline({ c, d }: { c: RecapCtx; d: DeathsSummary }) {
+  const { t } = c.i18n;
+  const W = 640, H = 92, L = 8, R = 8;
+  const end = Math.max(60, c.m.duration);
+  const x = (sec: number) => L + (Math.max(0, sec) / end) * (W - L - R);
+  const rowY = (radiant: boolean) => (radiant ? 22 : 56);
+  const ticks = Array.from({ length: Math.floor(end / 600) }, (_, k) => (k + 1) * 600).filter((s) => s < end);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 block w-full" role="img" aria-label={t('deaths.timeline')}>
+      {[true, false].map((r) => <line key={String(r)} x1={L} x2={W - R} y1={rowY(r)} y2={rowY(r)} stroke="var(--color-line)" strokeWidth="1" />)}
+      {ticks.map((s) => <text key={s} x={x(s)} y={H - 4} textAnchor="middle" fontSize="13" fill="var(--color-muted)">{s / 60}′</text>)}
+      {d.all.map((e, k) => {
+        const p = c.m.players[e.slot];
+        return (
+          <circle key={k} cx={x(e.time)} cy={rowY(p.radiant)} r={c.me === e.slot ? 8 : 6}
+            fill={p.radiant ? 'var(--color-pos)' : 'var(--color-neg)'} stroke={c.me === e.slot ? 'var(--color-accent)' : 'var(--color-surface)'} strokeWidth="2">
+            <title>{`${clock(e.time)} · ${heroName(c, p)}`}</title>
+          </circle>
+        );
+      })}
+      {d.buybacks.map((b, k) => {
+        const p = c.m.players[b.slot];
+        const cx = x(b.time), cy = rowY(p.radiant) - 15;
+        return (
+          <path key={`b${k}`} d={`M${cx},${cy - 7}L${cx + 7},${cy}L${cx},${cy + 7}L${cx - 7},${cy}Z`} fill="var(--color-accent)">
+            <title>{`${clock(b.time)} · ${heroName(c, p)} · ${t('deaths.buybackMark')}`}</title>
+          </path>
+        );
+      })}
+    </svg>
+  );
+}
+
+export function deathsSlide(c: RecapCtx, d: DeathsSummary): Slide {
+  const { t } = c.i18n;
+  return {
+    id: 'deaths',
+    title: t('slide.deaths'),
+    node: (
+      <div>
+        <Kicker>{t('slide.deaths')}</Kicker>
+        <Headline>{deathsHead(c, d)}</Headline>
+        <h4 className="label mb-1 mt-4">{t('deaths.timeline')}</h4>
+        <DeathTimeline c={c} d={d} />
+        <div className="flex justify-between text-[11px]">
+          <span className="text-pos">● {teamName(c, true)}</span>
+          <span className="text-accent">◆ {t('deaths.buybackMark')}</span>
+          <span className="text-neg">● {teamName(c, false)}</span>
+        </div>
+        <h4 className="label mb-2 mt-4">{t('deaths.costly')}</h4>
+        {d.costly.length ? (
+          <ul className="grid gap-1.5">
+            {d.costly.map((x) => (
+              <li key={`${x.slot}-${x.time}`} className="panel-2 flex items-center gap-2.5 px-2.5 py-2">
+                <Faces c={c} slots={x.group} size={30} />
+                <span className="min-w-0 flex-1 text-[13px] leading-[18px] text-ink">{costText(c, x)}</span>
+                {x.noBuyback && <span className="flex-none text-[11px] font-semibold uppercase tracking-[0.06em] text-neg">{t('deaths.noBuyback')}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-[13px] text-muted">{t('deaths.noneCostly')}</p>}
+        <h4 className="label mb-2 mt-4">{t('deaths.buybacks')}</h4>
+        {d.buybacks.length ? (
+          <ul className="grid gap-1.5">
+            {d.buybacks.map((b) => (
+              <li key={`${b.slot}-${b.time}`} className="panel-2 flex items-center gap-2.5 px-2.5 py-2 text-[13px] text-ink">
+                <Portrait c={c} p={c.m.players[b.slot]} size={30} ring={c.me === b.slot} />
+                <span className="tnum text-muted">{clock(b.time)}</span>
+                <span className="min-w-0 flex-1 truncate">{heroName(c, c.m.players[b.slot])}</span>
+                {b.paidOff && <span className="flex-none text-[12px] text-pos">{t('deaths.paidOff')}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-[13px] text-muted">{t('deaths.noBb')}</p>}
+        <Note>{t('deaths.note')}</Note>
+      </div>
+    ),
+    card: () => ({
+      kicker: t('slide.deaths'),
+      title: deathsHead(c, d),
+      subtitle: d.costly.length ? t('deaths.costly') : t('deaths.noneCostly'),
+      rows: [
+        ...d.costly.map((x) => ({ hero: c.heroOf(c.m.players[x.slot]), title: `${clock(x.time)} · ${names(c, x.group)}`, sub: tookText(c, x), value: x.noBuyback ? t('deaths.noBuyback') : undefined, tone: 'neg' as const })),
+        ...d.buybacks.slice(0, 3).map((b) => ({ hero: c.heroOf(c.m.players[b.slot]), title: `${clock(b.time)} · ${heroName(c, c.m.players[b.slot])}`, sub: t('deaths.buybackMark'), value: '◆', tone: 'accent' as const })),
+      ],
+      ...c.card,
+    }),
+  };
+}
+
 export function useSlides(c: RecapCtx | null): Slide[] {
   return useMemo(() => {
     if (!c) return [];
+    // the order of the game: draft → lanes → the middle game → fights → result
     const list = [coverSlide(c)];
     if (hasRealDraft(c.m)) list.push(draftSlide(c));
+    if (c.laning) list.push(lanesSlide(c, c.laning));
     if (c.m.goldAdv) list.push(flowSlide(c));
-    list.push(economySlide(c), buildSlide(c), awardsSlide(c));
+    if (c.m.parsed) list.push(fightsSlide(c));
+    list.push(economySlide(c));
+    if (c.deaths) list.push(deathsSlide(c, c.deaths));
+    list.push(buildSlide(c), awardsSlide(c));
     return list;
   }, [c]);
 }

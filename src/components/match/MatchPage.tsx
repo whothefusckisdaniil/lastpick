@@ -13,6 +13,9 @@ import { hasRealDraft, type MatchModel } from '../../match/model';
 import { swings as findSwings, verdict as findVerdict } from '../../match/analyze/story';
 import { awards as findAwards, economy as findEconomy, lobbyBracket, positions as findPositions } from '../../match/analyze/players';
 import { reviewBuild } from '../../match/analyze/builds';
+import { fights as findFights } from '../../match/analyze/fights';
+import { laning as findLaning } from '../../match/analyze/lanes';
+import { deaths as findDeaths } from '../../match/analyze/deaths';
 import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
 import { RecapPlayer } from './RecapPlayer';
@@ -104,7 +107,10 @@ export default function MatchPage() {
   const analysis = useMemo(() => {
     if (!model) return null;
     const pos = findPositions(model);
-    return { verdict: findVerdict(model), swings: findSwings(model), economy: findEconomy(model), awards: findAwards(model), pos };
+    return {
+      verdict: findVerdict(model), swings: findSwings(model), economy: findEconomy(model), awards: findAwards(model), pos,
+      fights: findFights(model), laning: findLaning(model), deaths: findDeaths(model),
+    };
   }, [model]);
 
   // whose build: you, else the one picked, else the MVP
@@ -224,6 +230,7 @@ export default function MatchPage() {
     return {
       m: model, i18n, heroOf, heroById, me, pos: analysis.pos.bySlot, posGuessed: analysis.pos.guessed,
       verdict: analysis.verdict, swings: analysis.swings, economy: analysis.economy, awards: analysis.awards,
+      fights: analysis.fights, laning: analysis.laning, deaths: analysis.deaths,
       draft, build, buildSlot, setBuildSlot: setPickedSlot, onOpenDraft: openDraft,
       patchName: patches?.find((p) => p.id === model.patchId)?.name ?? null,
       card: { site, notAffiliated: t('app.notAffiliated'), footer: `${t('match.meta', { id: model.id, mode: '', date: '' }).split(' · ')[0]} · ${t('match.source')}` },

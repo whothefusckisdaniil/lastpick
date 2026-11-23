@@ -18,7 +18,8 @@ interface RawPlayer {
   leaver_status?: Num; abandons?: Num;
   lane_role?: Num; is_roaming?: boolean | null;
   purchase_log?: { time: number; key: string }[] | null;
-  gold_t?: number[] | null; lh_t?: number[] | null;
+  gold_t?: number[] | null; lh_t?: number[] | null; xp_t?: number[] | null; dn_t?: number[] | null;
+  lane_efficiency?: Num; life_state_dead?: Num;
   kills_log?: { time: number; key: string }[] | null;
   buyback_log?: { time: number }[] | null;
   obs_placed?: Num; camps_stacked?: Num; stuns?: Num; teamfight_participation?: Num;
@@ -40,7 +41,7 @@ export interface RawMatch {
   radiant_gold_adv?: number[] | null;
   radiant_xp_adv?: number[] | null;
   objectives?: { time: number; type: string; key?: string | number; team?: number; slot?: number; player_slot?: number }[] | null;
-  teamfights?: { start: number; end: number; players?: { deaths?: number; gold_delta?: number }[] }[] | null;
+  teamfights?: { start: number; end: number; players?: { deaths?: number; gold_delta?: number; damage?: number; buybacks?: number; killed?: Record<string, number> }[] }[] | null;
 }
 
 const n = (v: Num) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -122,6 +123,10 @@ export function normalizeMatch(raw: RawMatch, heroKeyOf: (heroId: number) => str
       purchases,
       goldT: parsed && Array.isArray(p.gold_t) ? p.gold_t : null,
       lhT: parsed && Array.isArray(p.lh_t) ? p.lh_t : null,
+      xpT: parsed && Array.isArray(p.xp_t) ? p.xp_t : null,
+      dnT: parsed && Array.isArray(p.dn_t) ? p.dn_t : null,
+      laneEff: parsed ? opt(p.lane_efficiency) : null,
+      deadSeconds: parsed ? opt(p.life_state_dead) : null,
       deathTimes: parsed && key ? (deathsByKey.get(key) ?? []).sort((x, y) => x - y) : null,
       buybackTimes: (p.buyback_log ?? []).map((x) => x.time).filter((t) => typeof t === 'number'),
       obsPlaced: parsed ? opt(p.obs_placed) : null,
@@ -140,6 +145,13 @@ export function normalizeMatch(raw: RawMatch, heroKeyOf: (heroId: number) => str
     if (ps.length !== players.length) return [];
     let radiantDeaths = 0, direDeaths = 0, goldSwing = 0;
     const dead: number[] = [];
+    const fighters = ps.map((x) => ({
+      deaths: n(x.deaths),
+      kills: Object.entries(x.killed ?? {}).reduce((sum, [k, v]) => sum + (k.startsWith('npc_dota_hero_') ? n(v) : 0), 0),
+      goldDelta: n(x.gold_delta),
+      damage: n(x.damage),
+      buyback: n(x.buybacks) > 0,
+    }));
     ps.forEach((x, i) => {
       const d = n(x.deaths);
       const r = players[i].radiant;
@@ -147,7 +159,7 @@ export function normalizeMatch(raw: RawMatch, heroKeyOf: (heroId: number) => str
       if (r) radiantDeaths += d; else direDeaths += d;
       goldSwing += (r ? 1 : -1) * n(x.gold_delta);
     });
-    return [{ start: tf.start, end: tf.end, radiantDeaths, direDeaths, goldSwing, dead }];
+    return [{ start: tf.start, end: tf.end, radiantDeaths, direDeaths, goldSwing, dead, players: fighters }];
   });
 
   return {

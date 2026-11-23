@@ -15,6 +15,9 @@ import { STORY, swings, verdict } from './analyze/story';
 import { awards, economy, killShare, lobbyBracket, positions } from './analyze/players';
 import { reviewBuild } from './analyze/builds';
 import { pollDelay, POLL_LIMIT_MS } from './api';
+import { fights, fightScore } from './analyze/fights';
+import { laning } from './analyze/lanes';
+import { deaths, DEATHS } from './analyze/deaths';
 
 const buildFiles = import.meta.glob('../../public/builds/[0-9]*.json', { eager: true, import: 'default' }) as Record<string, HeroBuilds>;
 const heroBuild = (id: number) => buildFiles[`../../public/builds/${id}.json`];
@@ -105,7 +108,7 @@ describe('story', () => {
   it('swings: biggest 2-minute changes, not overlapping, with events', () => {
     const m = { ...withAdv([0, 0, 0, 500, 8000, 8000, 8000, 8000, 2000, 2000, 2000]),
       objectives: [{ time: 4 * 60, kind: 'roshan' as const, radiant: true }],
-      teamfights: [{ start: 220, end: 250, radiantDeaths: 1, direDeaths: 4, goldSwing: 5000, dead: [] }] };
+      teamfights: [{ start: 220, end: 250, radiantDeaths: 1, direDeaths: 4, goldSwing: 5000, dead: [], players: [] }] };
     const s = swings(m);
     expect(s).toHaveLength(2);
     expect(s[0].delta).toBeGreaterThan(0);
@@ -219,5 +222,80 @@ describe('parse polling', () => {
   it('backs off 5 → 10 → 20 → 30 s and stops within the limit', () => {
     expect([0, 1, 2, 3, 4, 9].map(pollDelay)).toEqual([5000, 10000, 20000, 30000, 30000, 30000]);
     expect(POLL_LIMIT_MS).toBeLessThanOrEqual(10 * 60 * 1000);
+  });
+});
+
+describe('teamfights', () => {
+  const list = fights(parsed);
+  it('every fight has a side or is a trade; deaths match the dead list', () => {
+    expect(list.length).toBe(parsed.teamfights.length);
+    for (const f of list) {
+      expect(f.dead.length).toBeLessThanOrEqual(f.radiantDeaths + f.direDeaths);
+      if (f.radiantDeaths !== f.direDeaths) expect(f.radiantWon).toBe(f.radiantDeaths < f.direDeaths);
+    }
+  });
+  it('one decisive fight, won by the match winner', () => {
+    const d = list.filter((f) => f.decisive);
+    expect(d).toHaveLength(1);
+    expect(d[0].radiantWon).toBe(parsed.radiantWin);
+  });
+  it('fight score counts wins only', () => {
+    const s = fightScore(list);
+    expect(s.radiant + s.dire).toBeLessThanOrEqual(list.length);
+  });
+  it('kills in a fight come from the hero kills, not creeps', () => {
+    for (const f of list) expect(f.killers.reduce((a, k) => a + k.kills, 0)).toBeLessThanOrEqual(f.radiantDeaths + f.direDeaths);
+  });
+});
+
+describe('laning', () => {
+  it('three lanes at minute 10, each player once', () => {
+    const l = laning(parsed)!;
+    expect(l.minute).toBe(10);
+    const slots = [...l.lanes.flatMap((x) => [...x.radiant, ...x.dire].map((p) => p.slot)), ...l.roamers];
+    expect(new Set(slots).size).toBe(slots.length);
+    expect(l.lanes.map((x) => x.lane)).toEqual(['bot', 'mid', 'top']);
+  });
+  it('winner needs a 15% margin', () => {
+    for (const x of laning(parsed)!.lanes) {
+      if (x.winner === 'radiant') expect(x.radiantValue).toBeGreaterThan(x.direValue * 1.15);
+      if (x.winner === 'even') expect(Math.max(x.radiantValue, x.direValue)).toBeLessThanOrEqual(Math.min(x.radiantValue, x.direValue) * 1.15 + 1e-6);
+    }
+  });
+  it('unparsed → none', () => {
+    expect(laning(unparsed)).toBeNull();
+  });
+});
+
+describe('deaths and buybacks', () => {
+  const d = deaths(parsed)!;
+  it('timeline has every death', () => {
+    expect(d.all.length).toBe(parsed.players.reduce((s, p) => s + p.deathTimes!.length, 0));
+  });
+  it('costly deaths: an enemy objective followed, sorted by time, one per push', () => {
+    expect(d.costly.length).toBeGreaterThan(0);
+    expect(d.costly.length).toBeLessThanOrEqual(DEATHS.top);
+    for (const c of d.costly) {
+      expect(c.score).toBeGreaterThan(0);
+      expect(c.group[0]).toBe(c.slot);
+      for (const s of c.group) expect(parsed.players[s].radiant).toBe(parsed.players[c.slot].radiant);
+    }
+    for (let i = 1; i < d.costly.length; i++) expect(d.costly[i].time).toBeGreaterThanOrEqual(d.costly[i - 1].time);
+  });
+  it('a late death before the barracks without a buyback is flagged', () => {
+    const m: MatchModel = {
+      ...parsed,
+      objectives: [{ time: 1900, kind: 'barracks', radiant: false }],
+      players: parsed.players.map((p) => ({ ...p, deathTimes: p.slot === 0 ? [1850] : [], buybackTimes: [] })),
+    };
+    const r = deaths(m)!;
+    expect(r.costly).toHaveLength(1);
+    expect(r.costly[0]).toMatchObject({ slot: 0, noBuyback: true, group: [0] });
+    const withBb = deaths({ ...m, players: m.players.map((p) => (p.slot === 0 ? { ...p, buybackTimes: [1870] } : p)) })!;
+    expect(withBb.costly[0].noBuyback).toBe(false);
+    expect(withBb.buybacks).toEqual([{ slot: 0, time: 1870, paidOff: false }]);
+  });
+  it('unparsed → none', () => {
+    expect(deaths(unparsed)).toBeNull();
   });
 });

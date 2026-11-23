@@ -44,6 +44,12 @@ export interface MatchPlayer {
   /** Parsed only: gold / last hits by minute. */
   goldT: number[] | null;
   lhT: number[] | null;
+  xpT: number[] | null;
+  dnT: number[] | null;
+  /** OpenDota's lane efficiency at 10 min (0..1 of the ideal lane gold), parsed only. */
+  laneEff: number | null;
+  /** Seconds spent dead, parsed only. */
+  deadSeconds: number | null;
   /** Parsed only: when the player died (seconds). */
   deathTimes: number[] | null;
   buybackTimes: number[];
@@ -74,6 +80,8 @@ export interface MatchTeamfight {
   goldSwing: number;
   /** Slots of players who died in it. */
   dead: number[];
+  /** Per player (index = slot). */
+  players: { deaths: number; kills: number; goldDelta: number; damage: number; buyback: boolean }[];
 }
 
 export interface PickBan { heroId: number; pick: boolean; radiant: boolean; order: number }
