@@ -5,6 +5,9 @@
  *   public/builds/index.json      window, patch, names/keys of every item and
  *                                 ability the builds reference (EN + RU)
  *   public/builds/<heroId>.json   { heroId, positions: { pos: { ALL | bracket: Build } } }
+ *   public/builds/norms/<rank>.json  averages at minutes 10–50 per hero,
+ *                                 position and rank (scripts/stratz/norms.mjs),
+ *                                 for the match recap
  *
  * Same window as the matchups (meta.json → matchupWindow: last 30 days of the
  * current patch, bucket weights), same rank brackets, and only the positions
@@ -17,7 +20,7 @@
  * in only after the whole set passes validateBuilds; on any error the old
  * builds stay untouched.
  *
- * Usage: node scripts/update-builds-stratz.mjs [--force] [--heroes 26,1]
+ * Usage: node scripts/update-builds-stratz.mjs [--force] [--heroes 26,1] [--norms-only]
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { StratzTransport, loadToken, BUCKET_SEC, BRACKETS, UpstreamEmptyError, upstreamOutageVerdict } from './update-data-stratz.mjs';
 import { POSITION_ELIGIBILITY } from './stratz/eligibility.mjs';
 import { accumulateHero, addAllRanks, buildHeroQuery, summarizeBuild, summarizeLanes, validateBuilds } from './stratz/builds.mjs';
+import { fetchNorms, normsFiles } from './stratz/norms.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = path.join(ROOT, 'public', 'data');
@@ -131,6 +135,17 @@ export async function queryWithRetry(transport, q, { attempts = 6, baseMs = 1500
   }
 }
 
+function writeNorms(dir, norms, meta) {
+  fs.mkdirSync(path.join(dir, 'norms'), { recursive: true });
+  let bytes = 0;
+  for (const [file, body] of Object.entries(normsFiles(norms, meta))) {
+    const s = JSON.stringify(body);
+    bytes += s.length;
+    fs.writeFileSync(path.join(dir, 'norms', file), s);
+  }
+  console.log(`    norm files: ${Object.keys(norms).length} ranks, ${Math.round(bytes / 1024)} KB`);
+}
+
 function eligiblePositions(entry) {
   if (!entry?.positions) return [];
   return ['1', '2', '3', '4', '5'].filter((p) => {
@@ -163,6 +178,21 @@ async function main() {
   }
   const meta = readJson(path.join(DATA, 'meta.json'));
   const heroes = readJson(path.join(DATA, 'heroes.json'));
+
+  if (args.includes('--norms-only')) {
+    // Only the hero norms (~10 requests), without rebuilding the builds.
+    const tr = new StratzTransport(loadToken());
+    await tr.init();
+    try {
+      const w = meta.matchupWindow;
+      const norms = await fetchNorms(tr, heroes.map((h) => h.id), w.weeklyBuckets, w.bucketWeights ?? {}, BRACKETS, { query: (q) => queryWithRetry(tr, q) });
+      writeNorms(OUT, norms, meta);
+    } finally {
+      await tr.close();
+    }
+    console.log('--- Norms published ---');
+    return;
+  }
   const positions = readJson(path.join(DATA, 'positions.json'));
   const indexPath = path.join(OUT, 'index.json');
   const index = fs.existsSync(indexPath) ? readJson(indexPath) : null;
@@ -247,6 +277,8 @@ async function main() {
     }
 
     validateBuilds(builds, { minHeroes: only ? 1 : 100 });
+    // a partial run keeps the published norms (copied with the directory)
+    const norms = only ? null : await fetchNorms(transport, heroes.map((h) => h.id), buckets, weights, BRACKETS, { query: (q) => queryWithRetry(transport, q) });
 
     // Only the names the builds use.
     const usedItems = new Set();
@@ -311,6 +343,7 @@ async function main() {
     console.log(`    lane files: ${Object.keys(lanes).length} heroes, ${Math.round(laneBytes / 1024)} KB`);
     if (!only && Object.keys(lanes).length < 100) throw new Error(`only ${Object.keys(lanes).length} heroes have lane data`);
     fs.writeFileSync(path.join(next, 'index.json'), JSON.stringify(newIndex));
+    if (norms) writeNorms(next, norms, meta);
     if (fs.existsSync(OUT)) fs.renameSync(OUT, prev);
     fs.renameSync(next, OUT);
     fs.rmSync(prev, { recursive: true, force: true });

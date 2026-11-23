@@ -3,7 +3,8 @@ name: Update hero builds
 # Runs after every dataset refresh, but the script only rebuilds when due:
 # weekly, on a new patch (then daily for its first week), on a roster change
 # or when forced.
-# ~640 STRATZ requests (~25 min) per rebuild, inside the token's limits.
+# ~640 STRATZ requests (~25 min) per rebuild, plus ~10–25 for the hero norms
+# (public/builds/norms/), inside the token's limits.
 on:
   # Right after each dataset refresh (it detects a new patch first), plus a
   # fallback schedule: GitHub's cron often starts hours late.

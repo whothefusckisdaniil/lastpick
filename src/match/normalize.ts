@@ -1,4 +1,4 @@
-import type { MatchModel, MatchObjective, MatchPlayer, MatchTeamfight, PickBan } from './model';
+import type { MatchModel, MatchObjective, MatchPlayer, MatchTeamfight, MatchWard, PickBan } from './model';
 
 /* Raw OpenDota /matches/{id} response — only the fields we read. */
 type Num = number | null | undefined;
@@ -24,7 +24,11 @@ interface RawPlayer {
   buyback_log?: { time: number }[] | null;
   obs_placed?: Num; camps_stacked?: Num; stuns?: Num; teamfight_participation?: Num;
   benchmarks?: Record<string, { raw?: number; pct?: number } | undefined> | null;
+  obs_log?: RawWard[] | null; sen_log?: RawWard[] | null;
+  obs_left_log?: RawWardLeft[] | null; sen_left_log?: RawWardLeft[] | null;
 }
+interface RawWard { time: number; x: number; y: number; ehandle?: number }
+interface RawWardLeft { time: number; ehandle?: number; attackername?: string }
 export interface RawMatch {
   match_id: number;
   start_time?: number;
@@ -47,6 +51,11 @@ export interface RawMatch {
 const n = (v: Num) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const opt = (v: Num) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const isRadiantSlot = (playerSlot: number) => playerSlot < 128;
+
+/** OpenDota ward coordinates are map cells, ~64..192 on both axes. */
+const MAP_MIN = 64;
+const MAP_SIZE = 128;
+const toMap = (v: number) => Math.min(1, Math.max(0, (v - MAP_MIN) / MAP_SIZE));
 
 function objective(o: NonNullable<RawMatch['objectives']>[number]): MatchObjective | null {
   if (o.type === 'CHAT_MESSAGE_FIRSTBLOOD') {
@@ -162,6 +171,34 @@ export function normalizeMatch(raw: RawMatch, heroKeyOf: (heroId: number) => str
     return [{ start: tf.start, end: tf.end, radiantDeaths, direDeaths, goldSwing, dead, players: fighters }];
   });
 
+  // wards: placement logs matched to their "left" logs by entity handle
+  const slotByKey = new Map<string, number>();
+  players.forEach((p) => { const k = heroKeyOf(p.heroId); if (k) slotByKey.set(k, p.slot); });
+  const wards: MatchWard[] = [];
+  if (parsed) {
+    rawPlayers.forEach((p, i) => {
+      for (const kind of ['obs', 'sen'] as const) {
+        const left = new Map((kind === 'obs' ? p.obs_left_log : p.sen_left_log)?.filter((x) => x.ehandle != null).map((x) => [x.ehandle!, x]) ?? []);
+        for (const w of (kind === 'obs' ? p.obs_log : p.sen_log) ?? []) {
+          if (typeof w.x !== 'number' || typeof w.y !== 'number') continue;
+          const l = w.ehandle != null ? left.get(w.ehandle) : undefined;
+          const killer = l?.attackername ? slotByKey.get(l.attackername) : undefined;
+          wards.push({
+            slot: i,
+            radiant: players[i].radiant,
+            kind,
+            time: w.time,
+            x: toMap(w.x),
+            y: toMap(w.y),
+            end: l ? l.time : null,
+            killedBy: killer != null && players[killer].radiant !== players[i].radiant ? killer : null,
+          });
+        }
+      }
+    });
+    wards.sort((a, b) => a.time - b.time);
+  }
+
   return {
     id: raw.match_id,
     startTime: n(raw.start_time),
@@ -179,6 +216,7 @@ export function normalizeMatch(raw: RawMatch, heroKeyOf: (heroId: number) => str
     xpAdv: parsed && raw.radiant_xp_adv?.length ? raw.radiant_xp_adv : null,
     objectives: (raw.objectives ?? []).map(objective).filter((o): o is MatchObjective => !!o).sort((a, b) => a.time - b.time),
     teamfights,
+    wards,
   };
 }
 

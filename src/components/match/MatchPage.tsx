@@ -16,6 +16,9 @@ import { reviewBuild } from '../../match/analyze/builds';
 import { fights as findFights } from '../../match/analyze/fights';
 import { laning as findLaning } from '../../match/analyze/lanes';
 import { deaths as findDeaths } from '../../match/analyze/deaths';
+import { wardSummary } from '../../match/analyze/wards';
+import { loadNorms, normGames, type NormFile } from '../../match/norms';
+import type { MatchPlayer } from '../../match/model';
 import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
 import { RecapPlayer } from './RecapPlayer';
@@ -109,9 +112,35 @@ export default function MatchPage() {
     const pos = findPositions(model);
     return {
       verdict: findVerdict(model), swings: findSwings(model), economy: findEconomy(model), awards: findAwards(model), pos,
-      fights: findFights(model), laning: findLaning(model), deaths: findDeaths(model),
+      fights: findFights(model), laning: findLaning(model), deaths: findDeaths(model), wards: wardSummary(model),
     };
   }, [model]);
+
+  // STRATZ norms: the lobby's rank, all ranks for a hero / position it lacks
+  const [normFiles, setNormFiles] = useState<{ lobby: NormFile | null; all: NormFile | null; rank: string } | null | undefined>(undefined);
+  useEffect(() => {
+    if (!model) return;
+    let alive = true;
+    setNormFiles(undefined);
+    const rank = lobbyBracket(model) ?? 'ALL';
+    Promise.all([rank === 'ALL' ? Promise.resolve(null) : loadNorms(rank), loadNorms('ALL')])
+      .then(([lobby, all]) => alive && setNormFiles(lobby || all ? { lobby, all, rank } : null));
+    return () => { alive = false; };
+  }, [model]);
+  const norms = useMemo<Loadable<(p: MatchPlayer) => { file: NormFile; rank: string } | null>>(() => {
+    if (normFiles === undefined) return { status: 'loading' };
+    if (!normFiles || !analysis) return { status: 'none' };
+    return {
+      status: 'ready',
+      value: (p) => {
+        const pos = analysis.pos.bySlot.get(p.slot);
+        if (!pos) return null;
+        if (normFiles.lobby && normGames(normFiles.lobby, p.heroId, pos) > 0) return { file: normFiles.lobby, rank: normFiles.rank };
+        if (normFiles.all && normGames(normFiles.all, p.heroId, pos) > 0) return { file: normFiles.all, rank: 'ALL' };
+        return null;
+      },
+    };
+  }, [normFiles, analysis]);
 
   // whose build: you, else the one picked, else the MVP
   const mvpSlot = analysis?.awards.find((a) => a.id === 'mvp')?.slot ?? 0;
@@ -230,12 +259,12 @@ export default function MatchPage() {
     return {
       m: model, i18n, heroOf, heroById, me, pos: analysis.pos.bySlot, posGuessed: analysis.pos.guessed,
       verdict: analysis.verdict, swings: analysis.swings, economy: analysis.economy, awards: analysis.awards,
-      fights: analysis.fights, laning: analysis.laning, deaths: analysis.deaths,
+      fights: analysis.fights, laning: analysis.laning, deaths: analysis.deaths, wards: analysis.wards, norms,
       draft, build, buildSlot, setBuildSlot: setPickedSlot, onOpenDraft: openDraft,
       patchName: patches?.find((p) => p.id === model.patchId)?.name ?? null,
       card: { site, notAffiliated: t('app.notAffiliated'), footer: `${t('match.meta', { id: model.id, mode: '', date: '' }).split(' · ')[0]} · ${t('match.source')}` },
     };
-  }, [model, analysis, heroById, i18n, heroOf, me, draft, build, buildSlot, openDraft, patches, site, t]);
+  }, [model, analysis, heroById, i18n, heroOf, me, draft, build, buildSlot, openDraft, patches, site, t, norms]);
   const slides = useSlides(ctx);
 
   return (

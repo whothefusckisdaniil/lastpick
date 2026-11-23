@@ -3,9 +3,11 @@ import type { MatchModel, MatchPlayer } from '../model';
 export type Pos = 1 | 2 | 3 | 4 | 5;
 
 /**
- * Positions 1–5 per team. Parsed matches have each player's lane; the three
- * richest are the cores (mid = 2, safe lane = 1, off lane = 3), the other two
- * supports (off lane = 4, safe lane = 5). Without lanes it is net worth order
+ * Positions 1–5 per team. With a parsed replay the lanes decide first: the
+ * mid laner is 2; the richer hero of the safe lane 1 and the other 5; the
+ * richer of the off lane 3 and the other 4 (a poor mid is still the mid).
+ * Whoever is left (a third hero in a lane, junglers, roamers) fills the free
+ * positions by net worth, cores first. Without lanes it is net worth order
  * alone — `guessed` is then true and the UI says the position is approximate.
  */
 export function positions(m: MatchModel): { bySlot: Map<number, Pos>; guessed: boolean } {
@@ -15,20 +17,25 @@ export function positions(m: MatchModel): { bySlot: Map<number, Pos>; guessed: b
     const ps = m.players.filter((p) => p.radiant === radiant).sort((a, b) => b.netWorth - a.netWorth);
     const hasLanes = ps.every((p) => p.laneRole != null);
     if (!hasLanes) guessed = true;
-    const cores = ps.slice(0, 3);
-    const supports = ps.slice(3);
-    const assign = (group: MatchPlayer[], wanted: [lane: number, pos: Pos][], order: Pos[]) => {
-      const free = new Set(order);
-      const left: MatchPlayer[] = [];
-      for (const p of group) {
-        const hit = hasLanes ? wanted.find(([lane, pos]) => lane === p.laneRole && free.has(pos)) : undefined;
-        if (hit) { bySlot.set(p.slot, hit[1]); free.delete(hit[1]); } else left.push(p);
-      }
-      // the rest by net worth, in position order
-      for (const p of left) { const pos = order.find((x) => free.has(x))!; bySlot.set(p.slot, pos); free.delete(pos); }
+    const free = new Set<Pos>([1, 2, 3, 4, 5]);
+    const take = (p: MatchPlayer | undefined, pos: Pos) => {
+      if (!p || bySlot.has(p.slot) || !free.has(pos)) return;
+      bySlot.set(p.slot, pos);
+      free.delete(pos);
     };
-    assign(cores, [[2, 2], [1, 1], [3, 3]], [1, 2, 3]);
-    assign(supports, [[3, 4], [1, 5]], [4, 5]);
+    if (hasLanes) {
+      const lane = (role: number) => ps.filter((p) => p.laneRole === role && !p.roaming);
+      take(lane(2)[0], 2);
+      take(lane(1)[0], 1);
+      take(lane(1)[1], 5);
+      take(lane(3)[0], 3);
+      take(lane(3)[1], 4);
+    }
+    // the rest by net worth into the free positions, in position order
+    for (const p of ps) {
+      if (bySlot.has(p.slot)) continue;
+      take(p, [...free].sort((a, b) => a - b)[0]);
+    }
   }
   return { bySlot, guessed };
 }

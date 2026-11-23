@@ -19,6 +19,8 @@ export interface RecapCard {
   /** Gold lead per minute, positive = the top team. */
   chart?: { values: number[]; topLabel: string; bottomLabel: string };
   rows?: RecapCardRow[];
+  /** Ward map: positions 0..1, y up. */
+  map?: { wards: { x: number; y: number; radiant: boolean; obs: boolean; dead: boolean; mine?: boolean }[] };
   /** Big kill score: Radiant – Dire, with the length between. */
   score?: { left: number; right: number; mid: string; leftWin: boolean };
   footer: string;
@@ -69,6 +71,63 @@ function score(ctx: CanvasRenderingContext2D, sc: NonNullable<RecapCard['score']
   ctx.fillText(l, cx - mw / 2 - size * 0.4 - ctx.measureText(l).width, y);
   ctx.fillStyle = sc.leftWin ? C.muted : C.neg;
   ctx.fillText(String(sc.right), cx + mw / 2 + size * 0.4, y);
+}
+
+/** Our schematic map (bases, lanes, river) with the wards. */
+function wardMap(ctx: CanvasRenderingContext2D, wards: NonNullable<RecapCard['map']>['wards'], x0: number, y0: number, size: number) {
+  const X = (v: number) => x0 + v * size;
+  const Y = (v: number) => y0 + (1 - v) * size;
+  const line = (pts: [number, number][]) => { ctx.beginPath(); pts.forEach(([a, b], k) => (k ? ctx.lineTo(X(a), Y(b)) : ctx.moveTo(X(a), Y(b)))); ctx.stroke(); };
+  ctx.save();
+  roundRect(ctx, x0, y0, size, size, size * 0.03);
+  ctx.fillStyle = '#0C0F14';
+  ctx.fill();
+  ctx.clip();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(111,183,255,0.16)';
+  ctx.lineWidth = size * 0.07;
+  line([[0, 0.62], [0.3, 0.55], [0.5, 0.5], [0.7, 0.45], [1, 0.38]]);
+  ctx.strokeStyle = '#2E3847';
+  ctx.lineWidth = size * 0.012;
+  line([[0.09, 0.2], [0.09, 0.91], [0.8, 0.91]]);
+  line([[0.17, 0.17], [0.83, 0.83]]);
+  line([[0.2, 0.09], [0.91, 0.09], [0.91, 0.8]]);
+  for (const [bx, by, color] of [[0.02, 0.22, 'rgba(61,220,151,'], [0.78, 0.98, 'rgba(255,92,92,']] as const) {
+    roundRect(ctx, X(bx), Y(by), size * 0.2, size * 0.2, size * 0.03);
+    ctx.fillStyle = `${color}0.14)`;
+    ctx.fill();
+  }
+  const r = size * 0.018;
+  for (const w of wards) {
+    const cx = X(w.x), cy = Y(w.y);
+    const color = w.radiant ? C.pos : C.neg;
+    if (w.obs) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, w.mine ? r * 1.3 : r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.85;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (w.mine) { ctx.strokeStyle = C.accent; ctx.lineWidth = size * 0.006; ctx.stroke(); }
+    } else {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(Math.PI / 4);
+      ctx.strokeStyle = w.mine ? C.accent : color;
+      ctx.lineWidth = size * 0.005;
+      ctx.strokeRect(-r * 0.8, -r * 0.8, r * 1.6, r * 1.6);
+      ctx.restore();
+    }
+    if (w.dead) {
+      ctx.strokeStyle = C.ink;
+      ctx.lineWidth = size * 0.004;
+      ctx.beginPath();
+      ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r);
+      ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 const toneColor = (t: Tone | undefined) => (t === 'pos' ? C.pos : t === 'neg' ? C.neg : t === 'accent' ? C.accent : t === 'muted' ? C.muted : C.ink);
@@ -218,6 +277,10 @@ export async function renderRecapCard(format: CardFormat, card: RecapCard): Prom
       chart(ctx, card.chart.values, M + 16, y + 16, CW - 32, 360, card.chart.topLabel, card.chart.bottomLabel, 26);
       y += 420;
     }
+    if (card.map) {
+      wardMap(ctx, card.map.wards, M, y, CW);
+      y += CW + 30;
+    }
     if (card.rows?.length) {
       const rowH = 120;
       const room = Math.floor((1640 - y) / (rowH + 16));
@@ -265,6 +328,10 @@ export async function renderRecapCard(format: CardFormat, card: RecapCard): Prom
     if (card.chart) {
       chart(ctx, card.chart.values, RX + 12, y + 12, RW - 24, card.teams ? H - y - 70 : 240, card.chart.topLabel, card.chart.bottomLabel, 16);
       y += (card.teams ? H - y - 70 : 240) + 40;
+    }
+    if (card.map) {
+      wardMap(ctx, card.map.wards, RX + (RW - (H - 2 * y)) / 2, y, H - 2 * y);
+      y = H;
     }
     if (card.rows?.length && y < H - 120) {
       const rowH = 84;

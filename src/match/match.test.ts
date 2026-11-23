@@ -18,6 +18,9 @@ import { pollDelay, POLL_LIMIT_MS } from './api';
 import { fights, fightScore } from './analyze/fights';
 import { laning } from './analyze/lanes';
 import { deaths, DEATHS } from './analyze/deaths';
+import { inPhase, lifetime, OBSERVER_LIFE, wardSummary, WARD_PHASES } from './analyze/wards';
+import { compareToNorm, normAt, type NormFile } from './norms';
+import normsDivine from '../../public/builds/norms/DIVINE_IMMORTAL.json';
 
 const buildFiles = import.meta.glob('../../public/builds/[0-9]*.json', { eager: true, import: 'default' }) as Record<string, HeroBuilds>;
 const heroBuild = (id: number) => buildFiles[`../../public/builds/${id}.json`];
@@ -137,6 +140,21 @@ describe('players', () => {
     const { bySlot } = positions(parsed);
     const mids = parsed.players.filter((p) => p.laneRole === 2);
     expect(mids.some((p) => bySlot.get(p.slot) === 2)).toBe(true);
+  });
+
+  it('a poor mid is still pos 2; the safe lane gives 1 and 5', () => {
+    const { bySlot } = positions(parsed);
+    for (const r of [true, false]) {
+      const team = parsed.players.filter((p) => p.radiant === r);
+      const mid = team.filter((p) => p.laneRole === 2 && !p.roaming).sort((a, b) => b.netWorth - a.netWorth)[0];
+      expect(bySlot.get(mid.slot)).toBe(2);
+      const safe = team.filter((p) => p.laneRole === 1 && !p.roaming).sort((a, b) => b.netWorth - a.netWorth);
+      if (safe[0]) expect(bySlot.get(safe[0].slot)).toBe(1);
+      if (safe[1]) expect(bySlot.get(safe[1].slot)).toBe(5);
+    }
+    // the fixture's Radiant mid is only 4th by net worth
+    const rad = parsed.players.filter((p) => p.radiant).sort((a, b) => b.netWorth - a.netWorth);
+    expect(rad.findIndex((p) => p.laneRole === 2)).toBeGreaterThan(2);
   });
 
   it('economy shares add up', () => {
@@ -297,5 +315,67 @@ describe('deaths and buybacks', () => {
   });
   it('unparsed → none', () => {
     expect(deaths(unparsed)).toBeNull();
+  });
+});
+
+describe('wards', () => {
+  const w = wardSummary(parsed)!;
+  it('placements from both logs, positions on the 0..1 map', () => {
+    expect(w.wards.length).toBeGreaterThan(20);
+    for (const x of w.wards) {
+      expect(x.x).toBeGreaterThanOrEqual(0); expect(x.x).toBeLessThanOrEqual(1);
+      expect(x.y).toBeGreaterThanOrEqual(0); expect(x.y).toBeLessThanOrEqual(1);
+      if (x.end != null) expect(x.end).toBeGreaterThanOrEqual(x.time);
+    }
+    expect(w.radiant.obs + w.radiant.sen + w.dire.obs + w.dire.sen).toBe(w.wards.length);
+  });
+  it('dewards: only by enemy heroes, counted for the destroying side', () => {
+    for (const x of w.wards) if (x.killedBy != null) expect(parsed.players[x.killedBy].radiant).not.toBe(x.radiant);
+    expect(w.radiant.dewards + w.dire.dewards).toBe(w.wards.filter((x) => x.killedBy != null).length);
+    expect(w.players.reduce((s, p) => s + p.dewards, 0)).toBe(w.radiant.dewards + w.dire.dewards);
+  });
+  it('observer lifetime: until destroyed, else 6 minutes or the end of the match', () => {
+    const base = { slot: 0, radiant: true, kind: 'obs' as const, x: 0.5, y: 0.5, killedBy: null };
+    expect(lifetime({ ...base, time: 100, end: 160 }, 3000)).toBe(60);
+    expect(lifetime({ ...base, time: 100, end: null }, 3000)).toBe(OBSERVER_LIFE);
+    expect(lifetime({ ...base, time: 2900, end: null }, 3000)).toBe(100);
+  });
+  it('phases cover each ward exactly once (besides "all")', () => {
+    for (const x of w.wards) expect(WARD_PHASES.slice(1).filter((p) => inPhase(x, p))).toHaveLength(1);
+  });
+  it('none without a parse', () => {
+    expect(wardSummary(unparsed)).toBeNull();
+  });
+});
+
+describe('STRATZ norms in the recap', () => {
+  const f = normsDivine as unknown as NormFile;
+  const am = 1;
+  it('interpolates between the stored minutes and extrapolates past them', () => {
+    const n10 = normAt(f, am, 1, 'nw', 10)!;
+    const n20 = normAt(f, am, 1, 'nw', 20)!;
+    expect(normAt(f, am, 1, 'nw', 15)).toBeCloseTo((n10 + n20) / 2, 5);
+    expect(normAt(f, am, 1, 'nw', 5)).toBeCloseTo(n10 / 2, 5);
+    expect(normAt(f, am, 1, 'nw', 60)!).toBeGreaterThan(normAt(f, am, 1, 'nw', 50)!);
+    expect(normAt(f, 99999, 1, 'nw', 10)).toBeNull();
+  });
+  it('compares a player at the end minute and at minute 10', () => {
+    const { bySlot } = positions(parsed);
+    let compared = 0;
+    for (const p of parsed.players) {
+      const c = compareToNorm(parsed, p, bySlot.get(p.slot)!, f);
+      if (!c.length) continue;
+      compared++;
+      expect(c.map((x) => x.key)).toContain('nw');
+      expect(c.map((x) => x.key)).toContain('cs10');
+      const d = c.find((x) => x.key === 'd');
+      if (d && !d.even) expect(d.good).toBe(d.value < d.norm);
+    }
+    expect(compared).toBeGreaterThan(5);
+  });
+  it('one kill above a low norm is "about usual", not +100%', () => {
+    const p = { ...parsed.players[0], kills: 2 };
+    const c = compareToNorm({ ...parsed, duration: 600 }, p, 5, f).find((x) => x.key === 'k');
+    if (c) expect(c.even).toBe(true);
   });
 });

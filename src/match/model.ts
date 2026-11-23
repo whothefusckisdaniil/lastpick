@@ -84,6 +84,20 @@ export interface MatchTeamfight {
   players: { deaths: number; kills: number; goldDelta: number; damage: number; buyback: boolean }[];
 }
 
+export interface MatchWard {
+  slot: number;
+  radiant: boolean;
+  kind: 'obs' | 'sen';
+  time: number;
+  /** Map position 0..1, x to the right (east), y up (towards Dire). */
+  x: number;
+  y: number;
+  /** When it left the map (expired or destroyed); null = until the end. */
+  end: number | null;
+  /** Slot of the enemy hero that destroyed it, null otherwise. */
+  killedBy: number | null;
+}
+
 export interface PickBan { heroId: number; pick: boolean; radiant: boolean; order: number }
 
 export interface MatchModel {
@@ -105,6 +119,8 @@ export interface MatchModel {
   xpAdv: number[] | null;
   objectives: MatchObjective[];
   teamfights: MatchTeamfight[];
+  /** Parsed only (empty otherwise). */
+  wards: MatchWard[];
 }
 
 /** All Pick, Captains Mode, Random/Single/Captains Draft, Ranked All Pick. */

@@ -10,6 +10,8 @@ import type { BuildReview, BuildRow } from '../../match/analyze/builds';
 import { fightScore, type FightSummary } from '../../match/analyze/fights';
 import type { Laning, LaneResult } from '../../match/analyze/lanes';
 import type { DeathCost, DeathsSummary } from '../../match/analyze/deaths';
+import { inPhase, lifetime, WARD_PHASES, type WardSummary } from '../../match/analyze/wards';
+import { compareToNorm, normAt, type NormCompare, type NormFile } from '../../match/norms';
 import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
 import type { RecapCard, RecapCardRow } from '../../share/matchCards';
@@ -44,6 +46,9 @@ export interface RecapCtx {
   fights: FightSummary[];
   laning: Laning | null;
   deaths: DeathsSummary | null;
+  wards: WardSummary | null;
+  /** STRATZ norm file for a player's hero / position (lobby rank, else all ranks). */
+  norms: Loadable<(p: MatchPlayer) => { file: NormFile; rank: string } | null>;
   draft: Loadable<DraftInfo>;
   build: Loadable<BuildInfo>;
   buildSlot: number;
@@ -427,13 +432,32 @@ export function flowSlide(c: RecapCtx): Slide {
 
 /* ---------- 6. economy ---------- */
 
+/** Net worth against the STRATZ norm at the end minute, or null without one. */
+function nwNorm(c: RecapCtx, p: MatchPlayer): NormCompare | null {
+  if (c.norms.status !== 'ready') return null;
+  const n = c.norms.value(p);
+  const pos = c.pos.get(p.slot);
+  if (!n || !pos) return null;
+  return compareToNorm(c.m, p, pos, n.file).find((x) => x.key === 'nw') ?? null;
+}
+
+const pctText = (diff: number) => `${diff >= 0 ? '+' : '−'}${Math.abs(Math.round(diff * 100))}%`;
+
 function gpmText(c: RecapCtx, p: MatchPlayer): string {
   const { t } = c.i18n;
+  const n = nwNorm(c, p);
+  if (n) return `${t('eco.gpm', { gpm: p.gpm })} · ${n.even ? t('eco.normEven') : t('eco.vsNorm', { pct: pctText(n.diff) })}`;
   const pct = p.bench.gpm;
   if (pct == null) return t('eco.gpm', { gpm: p.gpm });
   if (pct >= 0.5) return t('eco.gpmPct', { gpm: p.gpm, pct: Math.max(1, Math.round((1 - pct) * 100)) });
   if (pct <= 0.25) return t('eco.gpmLow', { gpm: p.gpm });
   return t('eco.gpm', { gpm: p.gpm });
+}
+
+function ecoTone(c: RecapCtx, p: MatchPlayer): string {
+  const n = nwNorm(c, p);
+  if (n) return n.even ? 'text-muted' : n.good ? 'text-pos' : 'text-neg';
+  return p.bench.gpm != null && p.bench.gpm <= 0.25 ? 'text-neg' : p.bench.gpm != null && p.bench.gpm >= 0.75 ? 'text-pos' : 'text-muted';
 }
 
 function ecoLines(c: RecapCtx): string[] {
@@ -477,7 +501,7 @@ function EconomyBody({ c }: { c: RecapCtx }) {
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface">
                       <i className={`block h-full rounded-full ${radiant ? 'bg-pos' : 'bg-neg'}`} style={{ width: `${(p.netWorth / maxNw) * 100}%` }} />
                     </div>
-                    <div className={`mt-0.5 truncate text-[11px] leading-[14px] ${p.bench.gpm != null && p.bench.gpm <= 0.25 ? 'text-neg' : p.bench.gpm != null && p.bench.gpm >= 0.75 ? 'text-pos' : 'text-muted'}`}>{gpmText(c, p)}</div>
+                    <div className={`mt-0.5 truncate text-[11px] leading-[14px] ${ecoTone(c, p)}`}>{gpmText(c, p)}</div>
                   </div>
                 </li>
               ))}
@@ -485,7 +509,7 @@ function EconomyBody({ c }: { c: RecapCtx }) {
           </div>
         ))}
       </div>
-      <Note>{t('eco.note')}</Note>
+      <Note>{c.norms.status === 'ready' && c.m.players.some((p) => nwNorm(c, p)) ? t('eco.noteNorm') : t('eco.note')}</Note>
     </>
   );
 }
@@ -689,6 +713,14 @@ function laneVerdict(c: RecapCtx, x: LaneResult): string {
   return x.winner === 'even' ? c.i18n.t('lanes.even') : c.i18n.t('lanes.won', { team: teamName(c, x.winner === 'radiant') });
 }
 
+function cs10Norm(c: RecapCtx, slot: number): number | null {
+  if (c.norms.status !== 'ready') return null;
+  const p = c.m.players[slot];
+  const n = c.norms.value(p);
+  const pos = c.pos.get(slot);
+  return n && pos ? normAt(n.file, p.heroId, pos, 'cs', 10) : null;
+}
+
 function LaneSide({ c, ps, radiant }: { c: RecapCtx; ps: LaneResult['radiant']; radiant: boolean }) {
   const { t, number } = c.i18n;
   if (!ps.length) return <div className="text-[12px] text-muted">{t('lanes.empty')}</div>;
@@ -700,6 +732,11 @@ function LaneSide({ c, ps, radiant }: { c: RecapCtx; ps: LaneResult['radiant']; 
           <div className="min-w-0">
             <div className="truncate text-[13px] font-semibold text-ink">{heroName(c, c.m.players[p.slot])}</div>
             <div className="tnum text-[11px] leading-[14px] text-muted">{number(p.gold)} · {p.lh}/{p.dn}{p.eff != null && <span className="hidden sm:inline"> · {t('lanes.eff', { pct: Math.round(p.eff * 100) })}</span>}</div>
+            {cs10Norm(c, p.slot) != null && (() => {
+              const n = cs10Norm(c, p.slot)!;
+              const tone = Math.abs(p.lh / n - 1) < 0.1 ? 'text-muted' : p.lh > n ? 'text-pos' : 'text-neg';
+              return <div className={`tnum text-[11px] leading-[14px] ${tone}`}>{t('lanes.norm', { n: Math.round(n) })}</div>;
+            })()}
           </div>
         </li>
       ))}
@@ -955,6 +992,235 @@ export function deathsSlide(c: RecapCtx, d: DeathsSummary): Slide {
   };
 }
 
+/* ---------- vision (ward map) ---------- */
+
+const phaseLabel = (c: RecapCtx, id: string) => (id === 'all' ? c.i18n.t('wards.all') : `${id.replace('-', '–')}′`);
+
+/** Our own schematic of the map (no game art): bases, lanes, river. y is up. */
+function MapBase({ size = 100 }: { size?: number }) {
+  const s = (v: number) => v * size;
+  const P = (pts: [number, number][]) => pts.map(([x, y], k) => `${k ? 'L' : 'M'}${s(x)},${s(1 - y)}`).join('');
+  return (
+    <g>
+      <rect x="0" y="0" width={size} height={size} rx={s(0.03)} fill="var(--color-bg-2)" />
+      <path d={P([[0, 0.62], [0.3, 0.55], [0.5, 0.5], [0.7, 0.45], [1, 0.38]])} stroke="var(--color-ally)" strokeOpacity="0.16" strokeWidth={s(0.07)} fill="none" strokeLinecap="round" />
+      <g stroke="var(--color-line-2)" strokeWidth={s(0.012)} fill="none" strokeLinecap="round">
+        <path d={P([[0.09, 0.2], [0.09, 0.91], [0.8, 0.91]])} />
+        <path d={P([[0.17, 0.17], [0.83, 0.83]])} />
+        <path d={P([[0.2, 0.09], [0.91, 0.09], [0.91, 0.8]])} />
+      </g>
+      <rect x={s(0.02)} y={s(0.78)} width={s(0.2)} height={s(0.2)} rx={s(0.03)} fill="var(--color-pos)" fillOpacity="0.14" stroke="var(--color-pos)" strokeOpacity="0.4" />
+      <rect x={s(0.78)} y={s(0.02)} width={s(0.2)} height={s(0.2)} rx={s(0.03)} fill="var(--color-neg)" fillOpacity="0.14" stroke="var(--color-neg)" strokeOpacity="0.4" />
+    </g>
+  );
+}
+
+function WardMap({ c, wards }: { c: RecapCtx; wards: WardSummary['wards'] }) {
+  const { t } = c.i18n;
+  const S = 100;
+  return (
+    <svg viewBox={`0 0 ${S} ${S}`} className="block aspect-square w-full max-w-[460px]" role="img" aria-label={t('slide.wards')}>
+      <MapBase size={S} />
+      {wards.map((w, k) => {
+        const cx = w.x * S, cy = (1 - w.y) * S;
+        const color = w.radiant ? 'var(--color-pos)' : 'var(--color-neg)';
+        const mine = c.me === w.slot;
+        const who = heroName(c, c.m.players[w.slot]);
+        const tip = [
+          `${clock(w.time)} · ${who} · ${t(w.kind === 'obs' ? 'wards.obs' : 'wards.sen')}`,
+          t('wards.lived', { t: clock(lifetime(w, c.m.duration)) }),
+          w.killedBy != null ? t('wards.by', { hero: heroName(c, c.m.players[w.killedBy]) }) : '',
+        ].filter(Boolean).join(' · ');
+        return (
+          <g key={k}>
+            <title>{tip}</title>
+            {w.kind === 'obs'
+              ? <circle cx={cx} cy={cy} r={mine ? 2.4 : 1.8} fill={color} fillOpacity="0.85" stroke={mine ? 'var(--color-accent)' : 'var(--color-bg)'} strokeWidth={mine ? 0.7 : 0.4} />
+              : <rect x={cx - 1.4} y={cy - 1.4} width="2.8" height="2.8" transform={`rotate(45 ${cx} ${cy})`} fill="none" stroke={mine ? 'var(--color-accent)' : color} strokeWidth="0.6" />}
+            {w.killedBy != null && <path d={`M${cx - 1.6},${cy - 1.6}L${cx + 1.6},${cy + 1.6}M${cx + 1.6},${cy - 1.6}L${cx - 1.6},${cy + 1.6}`} stroke="var(--color-ink)" strokeWidth="0.5" />}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function WardsBody({ c, w }: { c: RecapCtx; w: WardSummary }) {
+  const { t } = c.i18n;
+  const [phase, setPhase] = useState('all');
+  const [side, setSide] = useState<'both' | 'radiant' | 'dire'>('both');
+  const ph = WARD_PHASES.find((x) => x.id === phase)!;
+  const shown = w.wards.filter((x) => inPhase(x, ph) && (side === 'both' || x.radiant === (side === 'radiant')));
+  return (
+    <>
+      <Headline>{t('wards.head', { a: w.radiant.obs, b: w.dire.obs, c: w.radiant.dewards, d: w.dire.dewards })}</Headline>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <div className="seg seg-sm" role="tablist">
+          {WARD_PHASES.map((x) => (
+            <button key={x.id} type="button" role="tab" aria-selected={phase === x.id} onClick={() => setPhase(x.id)} className={`seg-btn ${phase === x.id ? 'is-active' : ''}`}>{phaseLabel(c, x.id)}</button>
+          ))}
+        </div>
+        <div className="seg seg-sm" role="tablist">
+          {(['both', 'radiant', 'dire'] as const).map((x) => (
+            <button key={x} type="button" role="tab" aria-selected={side === x} onClick={() => setSide(x)} className={`seg-btn ${side === x ? 'is-active' : ''}`}>
+              {x === 'both' ? t('wards.both') : teamName(c, x === 'radiant')}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_200px]">
+        <div>
+          <WardMap c={c} wards={shown} />
+          {shown.length === 0 && <p className="mt-2 text-[13px] text-muted">{t('wards.none')}</p>}
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted">
+            <span>● {t('wards.obs')}</span><span>◇ {t('wards.sen')}</span><span>✕ {t('wards.killed')}</span>
+            <span className="text-pos">■ {teamName(c, true)}</span><span className="text-neg">■ {teamName(c, false)}</span>
+            {c.me != null && <span className="text-accent">○ {t('match.you')}</span>}
+          </div>
+        </div>
+        <div className="grid content-start gap-3">
+          {[true, false].map((r) => {
+            const v = r ? w.radiant : w.dire;
+            return (
+              <div key={String(r)} className="panel-2 p-2.5 text-[12px] leading-[16px]">
+                <div className={`label mb-1 ${r ? 'text-pos' : 'text-neg'}`}>{teamName(c, r)}</div>
+                <div className="tnum text-ink">{t('wards.row', { obs: v.obs, sen: v.sen, dw: v.dewards })}</div>
+                {v.obsLife != null && <div className="text-muted">{t('wards.obsLife', { t: clock(v.obsLife) })}</div>}
+              </div>
+            );
+          })}
+          <div>
+            <div className="label mb-1.5">{t('wards.players')}</div>
+            <ul className="grid gap-1">
+              {w.players.slice(0, 6).map((x) => (
+                <li key={x.slot} className="flex items-center gap-2 text-[12px]">
+                  <Portrait c={c} p={c.m.players[x.slot]} size={24} ring={c.me === x.slot} />
+                  <span className="tnum min-w-0 flex-1 truncate text-muted">{t('wards.row', { obs: x.obs, sen: x.sen, dw: x.dewards })}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+      <Note>{t('wards.note')}</Note>
+    </>
+  );
+}
+
+export function wardsSlide(c: RecapCtx, w: WardSummary): Slide {
+  const { t } = c.i18n;
+  return {
+    id: 'wards',
+    title: t('slide.wards'),
+    node: <div><Kicker>{t('slide.wards')}</Kicker><WardsBody c={c} w={w} /></div>,
+    card: () => ({
+      kicker: t('slide.wards'),
+      title: t('wards.head', { a: w.radiant.obs, b: w.dire.obs, c: w.radiant.dewards, d: w.dire.dewards }),
+      map: { wards: w.wards.map((x) => ({ x: x.x, y: x.y, radiant: x.radiant, obs: x.kind === 'obs', dead: x.killedBy != null, mine: c.me === x.slot })) },
+      ...c.card,
+    }),
+  };
+}
+
+/* ---------- against the norm ---------- */
+
+// full class names: Tailwind only generates the ones it finds in the source
+const TONE_TEXT = { pos: 'text-pos', neg: 'text-neg', muted: 'text-muted' } as const;
+const TONE_BG = { pos: 'bg-pos', neg: 'bg-neg', muted: 'bg-line-2' } as const;
+
+function normValue(c: RecapCtx, x: NormCompare, v: number): string {
+  const { lang } = c.i18n;
+  if (x.key === 'nw' || x.key === 'hd' || x.key === 'xp10') return kGold(v, lang);
+  if (x.key === 'k' || x.key === 'd' || x.key === 'a') return v % 1 ? v.toFixed(1).replace('.', lang === 'ru' ? ',' : '.') : String(v);
+  return String(Math.round(v));
+}
+
+function normData(c: RecapCtx) {
+  if (c.norms.status !== 'ready') return null;
+  const p = c.m.players[c.buildSlot];
+  const pos = c.pos.get(p.slot);
+  const n = c.norms.value(p);
+  if (!n || !pos) return { p, pos, n: null, list: [] as NormCompare[] };
+  return { p, pos, n, list: compareToNorm(c.m, p, pos, n.file) };
+}
+
+function normHead(c: RecapCtx, d: NonNullable<ReturnType<typeof normData>>): string {
+  const good = d.list.filter((x) => !x.even && x.good).length;
+  return c.i18n.t('norm.head', { hero: heroName(c, d.p), n: good, total: d.list.length });
+}
+
+function normSub(c: RecapCtx, d: NonNullable<ReturnType<typeof normData>>): string {
+  const { t } = c.i18n;
+  if (!d.n || !d.pos) return '';
+  const rank = d.n.rank === 'ALL' ? t('rank.all') : t(`rank.${d.n.rank}` as StringKey);
+  return t('norm.sub', { hero: heroName(c, d.p), pos: d.pos, rank, min: Math.round(c.m.duration / 60), patch: d.n.file.patch });
+}
+
+function NormBody({ c }: { c: RecapCtx }) {
+  const { t } = c.i18n;
+  if (c.norms.status === 'loading') return <div className="mt-5"><DiamondLoader label={t('norm.loading')} /></div>;
+  const d = normData(c);
+  return (
+    <>
+      {c.me == null && <div className="mt-3"><PlayerPicker c={c} value={c.buildSlot} onChange={c.setBuildSlot} label={t('bs.pick')} /></div>}
+      {!d || !d.n || !d.list.length ? <p className="notice mt-4">{t('norm.none')}</p> : (
+        <>
+          <div className="mt-3 flex items-center gap-3">
+            <Portrait c={c} p={d.p} size={44} ring={c.me === d.p.slot} />
+            <div className="min-w-0"><Headline>{normHead(c, d)}</Headline></div>
+          </div>
+          <p className="mt-1 text-[12px] leading-[16px] text-muted">{normSub(c, d)}</p>
+          <ul className="mt-3 grid gap-1.5">
+            {d.list.map((x) => {
+              const clamp = Math.max(-1, Math.min(1, x.diff / 0.5));
+              const tone = x.even ? 'muted' : x.good ? 'pos' : 'neg';
+              return (
+                <li key={x.key} className="panel-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-semibold text-ink">{t(`norm.m.${x.key}` as StringKey)}</div>
+                    <div className="tnum text-[11px] leading-[14px] text-muted">{normValue(c, x, x.value)} · {t('norm.usual', { v: normValue(c, x, Math.round(x.norm * 10) / 10) })}</div>
+                  </div>
+                  <span className={`tnum text-[13px] font-semibold ${TONE_TEXT[tone]}`}>{x.even ? t('norm.even') : pctText(x.diff)}</span>
+                  {/* diverging bar around the norm: ±50% fills a half */}
+                  <div className="relative col-span-2 h-1.5 rounded-full bg-surface" aria-hidden="true">
+                    <i className="absolute left-1/2 top-[-2px] h-[10px] w-px bg-line-2" />
+                    <i className={`absolute top-0 h-full rounded-full ${TONE_BG[tone]}`} style={clamp >= 0 ? { left: '50%', width: `${clamp * 50}%` } : { right: '50%', width: `${-clamp * 50}%` }} />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          <Note>{t('norm.note')}</Note>
+        </>
+      )}
+    </>
+  );
+}
+
+export function normSlide(c: RecapCtx): Slide {
+  const { t } = c.i18n;
+  return {
+    id: 'norm',
+    title: t('slide.norm'),
+    node: <div><Kicker>{t('slide.norm')}</Kicker><NormBody c={c} /></div>,
+    card: () => {
+      const d = normData(c);
+      return {
+        kicker: t('slide.norm'),
+        title: d && d.list.length ? normHead(c, d) : t('norm.title', { hero: heroName(c, c.m.players[c.buildSlot]) }),
+        subtitle: d ? normSub(c, d) : undefined,
+        rows: (d?.list ?? []).map((x) => ({
+          title: t(`norm.m.${x.key}` as StringKey),
+          sub: `${normValue(c, x, x.value)} · ${t('norm.usual', { v: normValue(c, x, Math.round(x.norm * 10) / 10) })}`,
+          value: x.even ? '≈' : pctText(x.diff),
+          tone: (x.even ? 'muted' : x.good ? 'pos' : 'neg') as 'muted' | 'pos' | 'neg',
+        })),
+        ...c.card,
+      };
+    },
+  };
+}
+
 export function useSlides(c: RecapCtx | null): Slide[] {
   return useMemo(() => {
     if (!c) return [];
@@ -964,7 +1230,8 @@ export function useSlides(c: RecapCtx | null): Slide[] {
     if (c.laning) list.push(lanesSlide(c, c.laning));
     if (c.m.goldAdv) list.push(flowSlide(c));
     if (c.m.parsed) list.push(fightsSlide(c));
-    list.push(economySlide(c));
+    if (c.wards) list.push(wardsSlide(c, c.wards));
+    list.push(economySlide(c), normSlide(c));
     if (c.deaths) list.push(deathsSlide(c, c.deaths));
     list.push(buildSlide(c), awardsSlide(c));
     return list;
