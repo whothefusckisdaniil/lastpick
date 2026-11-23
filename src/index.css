@@ -87,6 +87,8 @@ body {
   20%, 40% { background: var(--color-accent); box-shadow: 0 0 12px rgba(255, 180, 58, 0.45); }
 }
 @keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+@keyframes recapFill { from { width: 0; } to { width: 100%; } }
+.recap-fill { width: 0; animation: recapFill linear forwards; }
 
 .fade-up { animation: fadeUp 200ms var(--ease-out) both; }
 .fade-in { animation: fadeIn 180ms ease-out both; }
@@ -97,6 +99,7 @@ body {
   .fade-up, .pop-in, .stagger > * { animation: fadeIn 180ms ease-out both; }
   .sheet, .side-panel { animation: fadeIn 180ms ease-out both !important; }
   .diamond-loader i { animation-duration: 2.4s !important; }
+  .recap-fill { animation: none; width: 100%; opacity: 0.6; }
   *, *::before, *::after { transition-property: opacity, background-color, border-color, color !important; }
 }
 

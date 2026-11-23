@@ -31,6 +31,8 @@ export interface WinChance {
   /** Strongest single factors for the explanation. */
   bestCounter: PairEdge | null;
   worstCounter: PairEdge | null;
+  /** Every matchup with data, best for your team first. */
+  pairs: PairEdge[];
 }
 
 const shrink = (raw: number, games: number) => (raw * games) / (games + APP_CONFIG.scoring.shrinkageK);
@@ -93,5 +95,6 @@ export function winChance(args: {
     synergy,
     bestCounter: pairs[0] && pairs[0].delta > 0.5 ? pairs[0] : null,
     worstCounter: pairs.length && pairs[pairs.length - 1].delta < -0.5 ? pairs[pairs.length - 1] : null,
+    pairs,
   };
 }

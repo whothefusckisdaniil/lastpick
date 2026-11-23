@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useDraftData } from './data/useDraftData';
 import { freshness } from './data/dataset';
 import { freshnessText, useI18n } from './i18n';
@@ -21,8 +21,23 @@ import { ScoringPlayground } from './components/ScoringPlayground';
 import { DraftValidation } from './components/DraftValidation';
 
 const SHOW_PLAYGROUND = import.meta.env.DEV;
+// Match analysis: its own chunk, the draft page does not download it.
+const MatchPage = lazy(() => import('./components/match/MatchPage'));
 
-type Page = 'main' | 'about' | 'privacy';
+type Page = 'main' | 'about' | 'privacy' | 'match';
+
+const isMatchUrl = () => { try { return new URLSearchParams(window.location.search).has('match'); } catch { return false; } };
+
+/** Enter / leave the match page: `?match=` in the address, a history entry for Back. */
+function setMatchUrl(on: boolean) {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    if (on === p.has('match')) return;
+    if (on) p.set('match', ''); else { p.delete('match'); p.delete('me'); }
+    const qs = p.toString().replace(/%2C/gi, ',').replace(/match=(&|$)/, 'match$1');
+    window.history.pushState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
+  } catch { /* sandboxed */ }
+}
 
 const TRY_EXAMPLES = ['Puck', 'Tidehunter', 'Juggernaut'];
 const DESKTOP = '(min-width: 1280px)';
@@ -52,7 +67,7 @@ export default function App() {
   const i18n = useI18n();
   const { t } = i18n;
   const [view, setView] = useState<'draft' | 'lab' | 'validate'>('draft');
-  const [page, setPage] = useState<Page>('main');
+  const [page, setPage] = useState<Page>(() => (isMatchUrl() ? 'match' : 'main'));
   const [details, setDetails] = useState<{ c: CandidateScore; lane: Exclude<PositionFilter, 'all'> } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const isDesktop = useMedia(DESKTOP);
@@ -61,6 +76,11 @@ export default function App() {
   // otherwise it keeps showing a stale CandidateScore for the previous lineup.
   useEffect(() => setDetails(null), [d.enemies, d.allies, d.bans]);
   useEffect(() => setDetails(null), [page]);
+  useEffect(() => {
+    const onPop = () => setPage((p) => (isMatchUrl() ? 'match' : p === 'match' ? 'main' : p));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   const heroByName = useMemo(() => {
     const m = new Map<string, number>();
@@ -69,6 +89,7 @@ export default function App() {
   }, [d.heroes]);
 
   function go(next: Page) {
+    setMatchUrl(next === 'match');
     setPage(next);
     window.scrollTo({ top: 0 });
   }
@@ -131,7 +152,15 @@ export default function App() {
                 <option value="lab">Scoring lab</option>
               </select>
             )}
-            {ready && <RankChip value={d.rank} options={d.rankOptions} onChange={d.setRank} />}
+            <button type="button" onClick={() => go(page === 'match' ? 'main' : 'match')} aria-pressed={page === 'match'}
+              className={`btn btn-sm !min-h-[36px] !px-2.5 ${page === 'match' ? 'btn-accent' : 'btn-ghost'}`} title={t('nav.match')}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 3v18h18" /><path d="M7 15l4-4 3 3 6-7" />
+              </svg>
+              <span className="hidden sm:inline">{t('nav.match')}</span>
+              <span className="sr-only sm:hidden">{t('nav.match')}</span>
+            </button>
+            {ready && page !== 'match' && <RankChip value={d.rank} options={d.rankOptions} onChange={d.setRank} />}
             <LanguageSwitch />
           </div>
         </header>
@@ -161,9 +190,16 @@ export default function App() {
               <li>{t('privacy.noData')}</li>
               <li>{t('privacy.noSteam')}</li>
               <li>{t('privacy.analytics')}</li>
+              <li>{t('privacy.match')}</li>
             </ul>
             <p className="mt-3">{t('privacy.note')}</p>
           </section>
+        )}
+
+        {page === 'match' && (
+          <Suspense fallback={<div className="mt-10 flex justify-center"><DiamondLoader label={t('match.loading')} /></div>}>
+            <MatchPage />
+          </Suspense>
         )}
 
         {page === 'main' && SHOW_PLAYGROUND && view === 'lab' && <ScoringPlayground />}
@@ -350,6 +386,7 @@ export default function App() {
               <span>{t('app.tagline')} · {t('app.notAffiliated')}</span>
             </div>
             <div className="flex items-center gap-1">
+              <button type="button" onClick={() => go('match')} className={`btn btn-sm !min-h-[36px] !border-0 ${page === 'match' ? 'text-accent' : 'text-muted hover:text-ink'}`}>{t('nav.match')}</button>
               <button type="button" onClick={() => go('about')} className={`btn btn-sm !min-h-[36px] !border-0 ${page === 'about' ? 'text-accent' : 'text-muted hover:text-ink'}`}>{t('nav.about')}</button>
               <button type="button" onClick={() => go('privacy')} className={`btn btn-sm !min-h-[36px] !border-0 ${page === 'privacy' ? 'text-accent' : 'text-muted hover:text-ink'}`}>{t('nav.privacy')}</button>
             </div>

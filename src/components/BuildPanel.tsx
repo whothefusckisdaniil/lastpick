@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Hero } from '../types';
-import { loadBuildIndex, loadHeroBuild, type Build, type BuildIndex, type HeroBuilds } from '../data/dataset';
+import { chooseBuild, loadBuildIndex, loadHeroBuild, type Build, type BuildIndex, type HeroBuilds } from '../data/dataset';
 import { useI18n } from '../i18n';
 import type { StringKey } from '../i18n/strings';
 import { HeroPortrait } from './HeroPortrait';
@@ -13,8 +13,6 @@ const CDN = 'https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react
 const itemImg = (key: string) => `${CDN}/items/${key}.png`;
 const abilityImg = (key: string) => `${CDN}/abilities/${key}.png`;
 const pct = (x: number) => Math.round(x * 100);
-/** Fewer Divine–Immortal games than this → the build uses all ranks. */
-export const PRO_MIN_MATCHES = 2000;
 const SHORT_NAMES: Record<string, string> = { ultimate_scepter: 'Scepter', aghanims_shard: 'Shard', ultimate_scepter_2: 'Blessing' };
 
 /** Core = bought in at least this share of games (after the laning items). */
@@ -68,13 +66,7 @@ export function BuildPanel({ hero, preferLane, onLane, onClose, enemies = [], al
   const laneName = (l: string) => t(`lane.${l}` as StringKey);
   const rankName = (r: string) => (r === 'ALL' ? t('rank.all') : t(`rank.${r}` as StringKey));
   const byRank = lane ? state.builds?.positions[lane] : undefined;
-  const PRO = 'DIVINE_IMMORTAL';
-  // One build for every rank: based on Divine–Immortal games (strong players
-  // buy what works), all ranks when a hero/position has too few of them.
-  const exact = byRank?.[PRO];
-  // Below ~2000 games the Divine shares get noisy (Yasha 7% next to Sange 8%).
-  const build: Build | undefined = exact && !exact.low && exact.m >= PRO_MIN_MATCHES ? exact : byRank?.ALL;
-  const shownRank = build === exact ? PRO : 'ALL';
+  const { build, rank: shownRank } = chooseBuild(byRank);
   const ix = state.index;
 
   const item = (id: number) => ix?.items[id];

@@ -163,6 +163,18 @@ With enemies in the draft, the build panel adds **For this draft**: up to 4 item
 
 When both teams are complete (four allies + your hero, five enemies) a card shows each team's chance (`src/scoring/winChance.ts`). The edge in win-rate points is hero strength (Σ base win rate − 50, yours minus theirs) + all 25 matchup advantages + teammate synergy (your 10 pairs minus theirs), shrunk by sample size like the picks, for the selected rank. Chance = logistic(0.0345 × edge): the slope was fitted on ~4000 public ranked matches (OpenDota); the three parts got nearly equal weights, and on held-out matches the draft alone picked the winner ~60% of the time. The card also lists the part sizes and the best / worst single matchup.
 
+## Match analysis (match recap)
+
+"Match analysis" in the header (`/?match=<id>`, `&me=<account id>` or `&me=p<slot>`) turns a finished match into a story, slide by slide. Paste an ID or a Dotabuff / OpenDota / STRATZ link.
+
+- **Data**: the browser loads the match straight from OpenDota (it sends CORS headers; limits are per viewer IP, the site spends nothing). The last 6 matches are cached in `localStorage`; on 429 or offline an older copy is shown. Only the match ID is sent.
+- **Unparsed matches** get a short recap (score, draft, final items, damage) and a "Request full parse" button: `POST /request/{id}`, then the match is refetched after 5 → 10 → 20 → 30 s pauses (30 s repeats), for at most 8 minutes.
+- **Slides** (v1): cover (template headline: comeback / stomp / close / steady from the gold graph), draft (the 5 v 5 draft through `winChance.ts` with today's tables for the lobby's average rank, best matchups both ways, pick and ban order; hidden in Turbo and custom modes), game flow (gold / XP lead chart, the 3 biggest 2-minute swings with fights, Roshan, towers), economy (net worth per player and team, GPM against OpenDota per-hero benchmarks), items (the player's purchases against the ideal build the site shows for that draft: on time / early / late / not bought), awards (computed, MVP is a labelled rough formula).
+- **"Which one is you?"** rebuilds the recap around your hero; your Steam account (if public) is remembered in the browser. From there "Open the draft" sends you to the draft page with this match's heroes.
+- **Positions** come from the parsed lanes (the 3 richest are cores: mid 2, safe 1, off 3; supports: off 4, safe 5); without a parse, from net worth alone (marked approximate).
+- **Sharing**: every slide is a PNG (1080×1920 / 1200×630) drawn on a canvas (`src/share/matchCards.ts`), or all slides at once.
+- Code: `src/match/` (`api.ts`, `normalize.ts` → our own `MatchModel`, `analyze/`), `src/components/match/`. The page is a separate chunk (lazy). Tests run on trimmed, anonymised OpenDota fixtures in `src/match/fixtures/` (parsed ranked, unparsed, Turbo, disconnects).
+
 ## Allies, synergy and bans
 
 The draft has three lists: **enemies** (up to 5), **your team** (up to 4 — you are the 5th) and **bans** (up to 14). The search adds to whichever is selected ("Add to: Enemies / My team / Bans"); a hero lives in one list only.

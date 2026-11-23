@@ -186,6 +186,21 @@ export interface Build {
   talents: BuildTalent[];
   skills: [abilityId: number, maxedAtLevel: number, pctMaxed: number][];
 }
+/** Fewer Divine–Immortal games than this → the build uses all ranks. */
+export const PRO_MIN_MATCHES = 2000;
+export const PRO_BRACKET = 'DIVINE_IMMORTAL';
+
+/**
+ * One build for every rank: Divine–Immortal games (strong players buy what
+ * works), all ranks when a hero/position has too few of them — below ~2000
+ * games the Divine shares get noisy (Yasha 7% next to Sange 8%).
+ */
+export function chooseBuild(byRank: Record<string, Build> | undefined): { build: Build | undefined; rank: string } {
+  const exact = byRank?.[PRO_BRACKET];
+  if (exact && !exact.low && exact.m >= PRO_MIN_MATCHES) return { build: exact, rank: PRO_BRACKET };
+  return { build: byRank?.ALL, rank: 'ALL' };
+}
+
 export interface HeroBuilds {
   heroId: number;
   /** position '1'..'5' → 'ALL' | bracket → build */

@@ -27,12 +27,12 @@ export interface CardData {
   site: string;
 }
 
-const C = {
+export const C = {
   bg: '#090B0F', s1: '#11151C', s2: '#181E28', line: '#232B38',
   ink: '#E8ECF2', muted: '#8A94A6', accent: '#FFB43A', pos: '#3DDC97', neg: '#FF5C5C',
 };
-const DISPLAY = 'Unbounded, Inter, sans-serif';
-const UI = 'Inter, system-ui, sans-serif';
+export const DISPLAY = 'Unbounded, Inter, sans-serif';
+export const UI = 'Inter, system-ui, sans-serif';
 
 const DIAMOND = new Path2D('M44.48 9.52A7.8 7.8 0 0 1 55.52 9.52L90.48 44.48A7.8 7.8 0 0 1 90.48 55.52L55.52 90.48A7.8 7.8 0 0 1 44.48 90.48L9.52 55.52A7.8 7.8 0 0 1 9.52 44.48Z');
 const ARROW = new Path2D('M27 44 L53 44 L53 31 L75 50 L53 69 L53 56 L27 56 Z');
@@ -42,7 +42,7 @@ export function scoreLabel(v: number): string {
   return `${r > 0 ? '+' : r < 0 ? '−' : ''}${Math.abs(r).toFixed(2)}`;
 }
 
-function loadImage(src: string): Promise<HTMLImageElement | null> {
+export function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -52,7 +52,7 @@ function loadImage(src: string): Promise<HTMLImageElement | null> {
 }
 
 /** Word-wrap into at most `maxLines` lines (the last one ellipsized). */
-function wrap(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, max: number, lineH: number, maxLines = 2) {
+export function wrap(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, max: number, lineH: number, maxLines = 2): number {
   const lines: string[] = [];
   let line = '';
   for (const w of text.split(' ')) {
@@ -63,9 +63,10 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, x: number, y: number,
   const shown = lines.slice(0, maxLines);
   if (lines.length > maxLines) shown[maxLines - 1] = fit(ctx, `${shown[maxLines - 1]} ${lines.slice(maxLines).join(' ')}`, max);
   shown.forEach((l, i) => ctx.fillText(l, x, y + i * lineH));
+  return shown.length;
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -75,7 +76,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
+export function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
   if (ctx.measureText(text).width <= max) return text;
   let t = text;
   while (t.length > 1 && ctx.measureText(`${t}…`).width > max) t = t.slice(0, -1);
@@ -83,7 +84,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
 }
 
 /** Square-cropped portrait (256×144 source → centre square), rounded. */
-function portrait(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null, hero: Hero, x: number, y: number, size: number, r: number) {
+export function portrait(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null, hero: Hero, x: number, y: number, size: number, r: number) {
   ctx.save();
   roundRect(ctx, x, y, size, size, r);
   ctx.clip();
@@ -104,7 +105,7 @@ function portrait(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null, h
   ctx.restore();
 }
 
-function logo(ctx: CanvasRenderingContext2D, x: number, y: number, h: number) {
+export function logo(ctx: CanvasRenderingContext2D, x: number, y: number, h: number) {
   // mark: diamond with the arrow "cut out" (filled with the background)
   const s = (h * 1.2) / 0.92 / 100;
   const markY = y - (100 * s - h) / 2;
@@ -139,7 +140,7 @@ function logo(ctx: CanvasRenderingContext2D, x: number, y: number, h: number) {
   ctx.fillText('PICK', tx + ctx.measureText('LAST').width, y + h);
 }
 
-function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, color = C.muted) {
+export function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, color = C.muted) {
   ctx.font = `600 ${size}px ${UI}`;
   ctx.fillStyle = color;
   ctx.letterSpacing = `${size * 0.08}px`;
