@@ -121,8 +121,9 @@ export function itemEntry(key, od) {
 }
 
 /** STRATZ answers "analytics database is at capacity" (GraphQL SERVER_BUSY,
- *  HTTP 200) under load: wait and retry instead of failing the whole run. */
-export async function queryWithRetry(transport, q, { attempts = 6, baseMs = 15000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log } = {}) {
+ *  HTTP 200) under load. The transport already waits ~4 min for that; this
+ *  adds a couple of longer rounds for the long build run. */
+export async function queryWithRetry(transport, q, { attempts = 3, baseMs = 60000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log } = {}) {
   for (let i = 1; ; i++) {
     try {
       return await transport.query(q);

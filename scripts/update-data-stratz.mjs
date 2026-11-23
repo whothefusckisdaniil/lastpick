@@ -87,19 +87,43 @@ function sanitize(text) {
  */
 export const STRATZ_USER_AGENT = 'STRATZ_API';
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+/** Pauses (ms) after a "database busy" answer; one per retry (~4 min in all). */
+export const BUSY_PAUSES_MS = Object.freeze([10_000, 20_000, 30_000, 45_000, 60_000, 60_000]);
+/** STRATZ under load answers HTTP 200 with GraphQL errors coded SERVER_BUSY
+ *  ("the analytics database did not free a slot"): worth waiting for. */
+export function isBusyError(errors) {
+  return Array.isArray(errors) && errors.length > 0 &&
+    errors.every((e) => (e?.extensions?.code ?? '') === 'SERVER_BUSY' || /SERVER_BUSY|temporarily unavailable|at capacity/i.test(String(e?.message ?? '')));
+}
 
 class StratzTransport {
-  constructor(token, { fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), maxAttempts = 4 } = {}) {
+  constructor(token, { fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), maxAttempts = 4, busyPauses = BUSY_PAUSES_MS, log = console.log } = {}) {
     if (!token) throw new Error('STRATZ_API_TOKEN is not set');
     this.token = token;
     this.fetchImpl = fetchImpl;
     this.sleep = sleep;
     this.maxAttempts = maxAttempts;
+    this.busyPauses = busyPauses;
+    this.log = log;
   }
 
   async init() {}
 
+  /** One query; a "database busy" answer is retried after growing pauses. */
   async query(queryStr, variables) {
+    for (let busy = 0; ; busy += 1) {
+      try {
+        return await this.queryOnce(queryStr, variables);
+      } catch (e) {
+        if (!e?.busy || busy >= this.busyPauses.length) throw e;
+        const ms = this.busyPauses[busy];
+        this.log(`    STRATZ busy (SERVER_BUSY), retry ${busy + 1}/${this.busyPauses.length} in ${Math.round(ms / 1000)}s`);
+        await this.sleep(ms);
+      }
+    }
+  }
+
+  async queryOnce(queryStr, variables) {
     let lastError = null;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
       let res;
@@ -140,7 +164,11 @@ class StratzTransport {
       if (res.status !== 200) throw new Error(`GraphQL HTTP ${res.status}: ${sanitize(res.text.slice(0, 300))}`);
 
       const parsed = JSON.parse(res.text);
-      if (parsed.errors) throw new Error(`GraphQL errors: ${sanitize(JSON.stringify(parsed.errors).slice(0, 600))}`);
+      if (parsed.errors) {
+        const err = new Error(`GraphQL errors: ${sanitize(JSON.stringify(parsed.errors).slice(0, 600))}`);
+        err.busy = isBusyError(parsed.errors);
+        throw err;
+      }
       return parsed;
     }
     throw lastError ?? new Error('No response from STRATZ GraphQL');

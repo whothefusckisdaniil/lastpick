@@ -69,3 +69,42 @@ describe('StratzTransport (plain HTTPS, no browser)', () => {
     expect(() => new StratzTransport('')).toThrow(/STRATZ_API_TOKEN/);
   });
 });
+
+describe('StratzTransport: STRATZ "database busy"', () => {
+  const busyBody = { errors: [{ message: 'Statistics are temporarily unavailable - the analytics database did not free a slot within 5s. Please retry in a moment.', extensions: { code: 'SERVER_BUSY' } }] };
+
+  it('waits and retries a SERVER_BUSY answer (HTTP 200 with GraphQL errors)', async () => {
+    const calls: number[] = [];
+    const sleeps: number[] = [];
+    const answers = [busyBody, busyBody, { data: { ok: 1 } }];
+    const t = new StratzTransport('tok', {
+      fetchImpl: async () => { calls.push(1); return reply(200, answers.shift()); },
+      sleep: async (ms: number) => { sleeps.push(ms); },
+      log: () => {},
+    });
+    expect(await t.query('{ ok }')).toEqual({ data: { ok: 1 } });
+    expect(calls).toHaveLength(3);
+    expect(sleeps).toEqual([10_000, 20_000]);
+  });
+
+  it('gives up after the last pause, with the STRATZ message', async () => {
+    const t = new StratzTransport('tok', {
+      fetchImpl: async () => reply(200, busyBody),
+      sleep: async () => {},
+      busyPauses: [1, 1],
+      log: () => {},
+    });
+    await expect(t.query('{ ok }')).rejects.toThrow(/SERVER_BUSY/);
+  });
+
+  it('does not retry other GraphQL errors', async () => {
+    let n = 0;
+    const t = new StratzTransport('tok', {
+      fetchImpl: async () => { n += 1; return reply(200, { errors: [{ message: 'Cannot query field "x"' }] }); },
+      sleep: async () => {},
+      log: () => {},
+    });
+    await expect(t.query('{ x }')).rejects.toThrow(/Cannot query field/);
+    expect(n).toBe(1);
+  });
+});
