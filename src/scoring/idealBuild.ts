@@ -7,8 +7,9 @@ import { itemHasRole } from '../data/itemTags';
  * "Ideal build" for your hero: boots + 6 slots in buying order.
  *
  *  1. Core — what this hero buys in ≥ 35% of games at this position/rank.
- *  2. Draft — up to 2 items for the enemy draft, only from what this hero
- *     buys (itemRules already filters that), with the reason.
+ *  2. Draft — up to 3 items for the enemy draft, only from what this hero
+ *     buys (itemRules already filters that), with the reason. They may take
+ *     the place of a weak core item (35–50%), never of solid core (≥ 50%).
  *  3. Team — up to 2 of the remaining slots for what your team lacks
  *     (teamNeeds.ts: damage / control / saves), from what this hero buys.
  *  4. Situational — the hero's next most popular items fill the rest, the
@@ -43,7 +44,7 @@ export interface IdealBuild {
   shard: { id: number; pct: number; minute: number } | null;
 }
 
-export const IDEAL = { slots: 6, corePct: 0.35, laningMinute: 12, draftSlots: 2, teamSlots: 2, teamMinPct: 0.05, upgradeRatio: 0.5, shardMinPct: 0.1 } as const;
+export const IDEAL = { slots: 6, corePct: 0.35, solidCorePct: 0.5, laningMinute: 12, draftSlots: 3, teamSlots: 2, teamMinPct: 0.05, upgradeRatio: 0.5, shardMinPct: 0.1 } as const;
 
 const NO_SLOT = new Set(['aghanims_shard', 'ultimate_scepter_2']);
 
@@ -97,13 +98,18 @@ export function idealBuild(
 
   const byPct = [...pool].sort((a, b) => b[1] - a[1]);
   const core = byPct.filter((x) => x[1] >= IDEAL.corePct);
-  // keep room for the draft picks
   const draft = suggestions
     .map((s) => ({ s, x: pool.find((p) => key(p[0]) === s.key) }))
     .filter((d): d is { s: ItemSuggestion; x: (typeof pool)[number] } => !!d.x)
     .slice(0, IDEAL.draftSlots);
-  core.slice(0, IDEAL.slots - draft.length).forEach((x) => add(x, 'core'));
-  draft.forEach(({ s, x }) => add(x, 'draft', s));
+  // Solid core (≥ 50%: BKB, the main damage) is never displaced; draft items
+  // take the free slots and then those of the weakest core (35–50%).
+  const solid = core.filter((x) => x[1] >= IDEAL.solidCorePct);
+  const room = Math.max(0, IDEAL.slots - solid.length);
+  const draftFit = draft.slice(0, room);
+  solid.forEach((x) => add(x, 'core'));
+  core.filter((x) => x[1] < IDEAL.solidCorePct).slice(0, room - draftFit.length).forEach((x) => add(x, 'core'));
+  draftFit.forEach(({ s, x }) => add(x, 'draft', s));
   // Team slots: the slots left after core and draft (core is never displaced)
   // go first to items this hero buys (≥ 5%) that answer what the team lacks.
   byPct

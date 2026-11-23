@@ -264,7 +264,6 @@ export default function App() {
               {d.me && d.heroById.get(d.me) && (
                 <BuildPanel
                   hero={d.heroById.get(d.me)!}
-                  rank={d.rank === 'ALL' || d.rankError ? 'ALL' : d.rank}
                   preferLane={d.position !== 'all' ? d.position : null}
                   onLane={(l) => d.setPosition(l as Exclude<PositionFilter, 'all'>)}
                   enemies={d.enemies.flatMap((id) => { const h = d.heroById.get(id); return h ? [h] : []; })}

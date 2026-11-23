@@ -13,6 +13,8 @@ const CDN = 'https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react
 const itemImg = (key: string) => `${CDN}/items/${key}.png`;
 const abilityImg = (key: string) => `${CDN}/abilities/${key}.png`;
 const pct = (x: number) => Math.round(x * 100);
+/** Fewer Divine–Immortal games than this → the build uses all ranks. */
+export const PRO_MIN_MATCHES = 2000;
 const SHORT_NAMES: Record<string, string> = { ultimate_scepter: 'Scepter', aghanims_shard: 'Shard', ultimate_scepter_2: 'Blessing' };
 
 /** Core = bought in at least this share of games (after the laning items). */
@@ -22,13 +24,12 @@ const LANING_MINUTE = 12;
 type State = { index: BuildIndex | null; builds: HeroBuilds | null; status: 'loading' | 'ready' | 'none' | 'error' };
 
 /** Statistical build of your hero for a position and rank (MVP: no enemy adaptation). */
-export function BuildPanel({ hero, rank, preferLane, onLane, onClose, enemies = [], allies = [] }: {
+export function BuildPanel({ hero, preferLane, onLane, onClose, enemies = [], allies = [] }: {
   hero: Hero;
   /** Your allies: what the team lacks shapes the flexible slots. */
   allies?: Hero[];
   /** Enemy heroes: drive the rule-based "for this draft" suggestions. */
   enemies?: Hero[];
-  rank: string;
   /** The role tab: '1'..'5', or null for "All" (then the hero's main position). */
   preferLane: string | null;
   /** Switch the role tab (the panel has no position of its own: one switch for
@@ -39,8 +40,6 @@ export function BuildPanel({ hero, rank, preferLane, onLane, onClose, enemies = 
   const i18n = useI18n();
   const { t } = i18n;
   const [state, setState] = useState<State>({ index: null, builds: null, status: 'loading' });
-  /** 'mine' = the selected rank (default), 'pro' = Divine–Immortal games. */
-  const [source, setSource] = useState<'mine' | 'pro'>('mine');
 
   useEffect(() => {
     let alive = true;
@@ -70,11 +69,12 @@ export function BuildPanel({ hero, rank, preferLane, onLane, onClose, enemies = 
   const rankName = (r: string) => (r === 'ALL' ? t('rank.all') : t(`rank.${r}` as StringKey));
   const byRank = lane ? state.builds?.positions[lane] : undefined;
   const PRO = 'DIVINE_IMMORTAL';
-  const wantRank = source === 'pro' ? PRO : rank;
-  const exact = byRank?.[wantRank];
-  const build: Build | undefined = exact && !exact.low ? exact : byRank?.ALL;
-  const fellBack = wantRank !== 'ALL' && build === byRank?.ALL;
-  const shownRank = fellBack ? 'ALL' : wantRank;
+  // One build for every rank: based on Divine–Immortal games (strong players
+  // buy what works), all ranks when a hero/position has too few of them.
+  const exact = byRank?.[PRO];
+  // Below ~2000 games the Divine shares get noisy (Yasha 7% next to Sange 8%).
+  const build: Build | undefined = exact && !exact.low && exact.m >= PRO_MIN_MATCHES ? exact : byRank?.ALL;
+  const shownRank = build === exact ? PRO : 'ALL';
   const ix = state.index;
 
   const item = (id: number) => ix?.items[id];
@@ -142,20 +142,6 @@ export function BuildPanel({ hero, rank, preferLane, onLane, onClose, enemies = 
               ))}
             </div>
           )}
-          {rank !== PRO && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] leading-[14px] text-muted">{t('build.sourceTitle')}</span>
-              <div className="seg seg-sm" role="radiogroup" aria-label={t('build.sourceTitle')}>
-                {(['mine', 'pro'] as const).map((src) => (
-                  <button key={src} type="button" role="radio" aria-checked={source === src} onClick={() => setSource(src)} className={`seg-btn ${source === src ? 'is-active' : ''}`}>
-                    {src === 'mine' ? `${t('build.sourceMine')} · ${rankName(rank)}` : t('build.sourcePro')}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {fellBack && <p className="notice mt-3">{t('build.lowData', { rank: rankName(wantRank) })}</p>}
-
           <IdealRow build={build} itemOf={item} suggestions={suggestions} needs={teamNeeds(allies, Number(lane) as 1 | 2 | 3 | 4 | 5)} />
           <Adaptation suggestions={suggestions} enemies={enemies} />
           <h3 className="mt-6 border-t border-line pt-4 font-display text-[13px] font-bold uppercase tracking-[0.06em] text-muted">{t('build.details')}</h3>
