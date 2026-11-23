@@ -79,7 +79,21 @@ describe('alternative upgrades of one intermediate item', () => {
     expect(keys).toContain('hurricane_pike');
     expect(keys).not.toContain('hydras_breath');
     expect(keys).not.toContain('dragon_lance'); // completed into the Pike
-    expect(keys).toContain('specialists_array'); // no longer a Hydra component here
+    expect(keys).not.toContain('specialists_array'); // on the Hydra path, which is not taken
+  });
+
+  it('Sniper (Divine, 7.42): Lance completed by Pike + Hydra together, Array (Hydra path) dropped', () => {
+    const SNIPER2 = {
+      m: 9583, low: false, start: [], talents: [], skills: [], boots: [],
+      items: [[236, 0.857, 17, 50], [166, 0.58, 14, 50], [102, 0.464, 23, 50], [158, 0.431, 24, 50], [263, 0.425, 24, 50],
+        [1800, 0.306, 21, 50], [1806, 0.277, 25, 50]],
+    } as unknown as Build;
+    const keys = idealBuild(SNIPER2, (id) => ITEMS2[id]).slots.map((s) => s.key);
+    expect(keys).toContain('hurricane_pike');
+    expect(keys).toContain('mjollnir');
+    expect(keys).not.toContain('dragon_lance');
+    expect(keys).not.toContain('specialists_array');
+    expect(keys).not.toContain('hydras_breath');
   });
 });
 

@@ -74,11 +74,13 @@ export function idealBuild(
     && (y[1] > x[1] || (y[1] === x[1] && y[0] < x[0]))
     && comps(x[0]).some((c) => boughtKeys.has(c) && comps(y[0]).includes(c))));
 
-  // drop a component when its upgrade is bought by at least half as many
-  const isCompleted = (k: string, pct: number) => later.some((y) => {
-    const cs = comps(y[0]);
-    return cs.includes(k) && y[1] >= pct * IDEAL.upgradeRatio;
-  });
+  // Drop a component when its upgrades together are bought by at least half
+  // as many: Dragon Lance 86% → Pike 42% + Hydra 28% = 70% (each alone is
+  // under half). Upgrades left out as alternatives count too — Specialist's
+  // Array leads to Hydra's Breath, and without Hydra it is a path not taken.
+  const isCompleted = (k: string, pct: number) => allLater
+    .filter((y) => comps(y[0]).includes(k))
+    .reduce((sum, y) => sum + y[1], 0) >= pct * IDEAL.upgradeRatio;
   const finished = later.filter((x) => !isCompleted(key(x[0]), x[1]));
   const farm = finished.filter((x) => FARM_ALTERNATIVES.has(key(x[0])));
   // A component that stayed (its upgrade is rare: Skull Basher 41% vs Abyssal
