@@ -91,31 +91,17 @@ body {
 .recap-fill { width: 0; animation: recapFill linear forwards; }
 .parse-bar { transition: width 1s linear; }
 
-/* Recap slides: all stacked in one grid cell, so the stage is as tall as the
-   tallest slide and the controls below never move. The current one slides in
-   from the side it comes from; its blocks follow one by one. */
-.recap-stage { display: grid; }
-.recap-slide {
-  grid-area: 1 / 1;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: translateX(40px) scale(0.985);
-  transition: opacity 320ms var(--ease-out), transform 420ms var(--ease-out), visibility 0s linear 420ms;
-}
-.recap-slide.is-before { transform: translateX(-40px) scale(0.985); }
-.recap-slide.is-active {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transform: none;
-  transition: opacity 380ms var(--ease-out) 60ms, transform 480ms var(--ease-out) 60ms, visibility 0s;
-}
-.recap-slide.is-active > * > * { animation: fadeUp 420ms var(--ease-out) both; animation-delay: 140ms; }
-.recap-slide.is-active > * > :nth-child(2) { animation-delay: 200ms; }
-.recap-slide.is-active > * > :nth-child(3) { animation-delay: 260ms; }
-.recap-slide.is-active > * > :nth-child(4) { animation-delay: 320ms; }
-.recap-slide.is-active > * > :nth-child(n + 5) { animation-delay: 380ms; }
+/* Recap slides: the new slide comes in from the side it is on (next: right,
+   previous: left); its blocks follow one by one. */
+@keyframes recapInNext { from { opacity: 0; transform: translateX(48px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes recapInPrev { from { opacity: 0; transform: translateX(-48px) scale(0.985); } to { opacity: 1; transform: none; } }
+.recap-in-next { animation: recapInNext 460ms var(--ease-out) both; }
+.recap-in-prev { animation: recapInPrev 460ms var(--ease-out) both; }
+.recap-in-next > * > *, .recap-in-prev > * > * { animation: fadeUp 420ms var(--ease-out) both; animation-delay: 120ms; }
+.recap-in-next > * > :nth-child(2), .recap-in-prev > * > :nth-child(2) { animation-delay: 180ms; }
+.recap-in-next > * > :nth-child(3), .recap-in-prev > * > :nth-child(3) { animation-delay: 240ms; }
+.recap-in-next > * > :nth-child(4), .recap-in-prev > * > :nth-child(4) { animation-delay: 300ms; }
+.recap-in-next > * > :nth-child(n + 5), .recap-in-prev > * > :nth-child(n + 5) { animation-delay: 360ms; }
 
 .fade-up { animation: fadeUp 200ms var(--ease-out) both; }
 .fade-in { animation: fadeIn 180ms ease-out both; }
@@ -127,8 +113,8 @@ body {
   .sheet, .side-panel { animation: fadeIn 180ms ease-out both !important; }
   .diamond-loader i { animation-duration: 2.4s !important; }
   .recap-fill { animation: none; width: 100%; opacity: 0.6; }
-  .recap-slide, .recap-slide.is-before { transform: none; }
-  .recap-slide.is-active > * > * { animation: none; }
+  .recap-in-next, .recap-in-prev { animation: fadeIn 200ms ease-out both; }
+  .recap-in-next > * > *, .recap-in-prev > * > * { animation: none; }
   *, *::before, *::after { transition-property: opacity, background-color, border-color, color !important; }
 }
 

@@ -28,25 +28,19 @@ export function RecapPlayer({ slides, matchId, shareUrl }: { slides: Slide[]; ma
   const [menu, setMenu] = useState(false);
   const [status, setStatus] = useState<ShareStatus>('idle');
   const touch = useRef<{ x: number; y: number } | null>(null);
-  const stage = useRef<HTMLDivElement | null>(null);
-  const shown = useRef(0);
+  /** Direction of the last move, for the slide-in animation. */
+  const prevIndex = useRef(0);
   const count = slides.length;
   const i = Math.min(index, count - 1);
+  const dirRef = useRef(1);
+  if (i !== prevIndex.current) { dirRef.current = i > prevIndex.current ? 1 : -1; prevIndex.current = i; }
+  const dir = dirRef.current;
 
   const go = useCallback((d: number) => setIndex((x) => Math.max(0, Math.min(count - 1, x + d))), [count]);
 
   useEffect(() => { try { localStorage.setItem(MODE_KEY, mode); } catch { /* ignore */ } }, [mode]);
   useEffect(() => setIndex(0), [matchId]);
 
-  // a new slide starts at the top of the stage: bring the top into view when it is above the screen
-  useEffect(() => {
-    if (shown.current === i) return;
-    shown.current = i;
-    const el = stage.current;
-    if (!el) return;
-    const top = el.getBoundingClientRect().top;
-    if (top < 0) window.scrollTo({ top: window.scrollY + top - 72, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-  }, [i]);
 
   // keyboard: arrows (not while typing), space toggles autoplay
   useEffect(() => {
@@ -150,6 +144,7 @@ export function RecapPlayer({ slides, matchId, shareUrl }: { slides: Slide[]; ma
     );
   }
 
+  const slide = slides[i];
   return (
     <div>
       {toolbar}
@@ -165,26 +160,19 @@ export function RecapPlayer({ slides, matchId, shareUrl }: { slides: Slide[]; ma
           </button>
         ))}
       </div>
-      <div ref={stage} className="recap-stage relative mt-2 overflow-x-clip" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        {slides.map((s, k) => {
-          const active = k === i;
-          return (
-            <section key={s.id} className={`recap-slide panel p-4 sm:p-6 ${active ? 'is-active' : k < i ? 'is-before' : ''}`}
-              aria-roledescription="slide" aria-hidden={!active} {...(active ? {} : { inert: '' })}
-              aria-label={`${s.title} · ${t('recap.of', { n: k + 1, total: count })}`}>
-              {s.node}
-            </section>
-          );
-        })}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <button type="button" onClick={() => { go(-1); setPlaying(false); }} disabled={i === 0} className="btn btn-ghost btn-sm min-w-0 disabled:opacity-40" aria-label={t('recap.prev')}>
+          <span aria-hidden="true">←</span> <span className="hidden truncate sm:inline">{i > 0 ? slides[i - 1].title : ''}</span>
+        </button>
+        <span className="tnum shrink-0 text-[12px] text-muted">{t('recap.of', { n: i + 1, total: count })}</span>
+        <button type="button" onClick={() => { go(1); setPlaying(false); }} disabled={i === count - 1} className="btn btn-ghost btn-sm min-w-0 disabled:opacity-40" aria-label={t('recap.next')}>
+          <span className="hidden truncate sm:inline">{i < count - 1 ? slides[i + 1].title : ''}</span> <span aria-hidden="true">→</span>
+        </button>
       </div>
-      <div className="mt-3 flex items-center justify-between">
-        <button type="button" onClick={() => { go(-1); setPlaying(false); }} disabled={i === 0} className="btn btn-ghost btn-sm disabled:opacity-40" aria-label={t('recap.prev')}>
-          <span aria-hidden="true">←</span> <span className="hidden sm:inline">{i > 0 ? slides[i - 1].title : ''}</span>
-        </button>
-        <span className="tnum text-[12px] text-muted">{t('recap.of', { n: i + 1, total: count })}</span>
-        <button type="button" onClick={() => { go(1); setPlaying(false); }} disabled={i === count - 1} className="btn btn-ghost btn-sm disabled:opacity-40" aria-label={t('recap.next')}>
-          <span className="hidden sm:inline">{i < count - 1 ? slides[i + 1].title : ''}</span> <span aria-hidden="true">→</span>
-        </button>
+      <div className="relative mt-2 overflow-x-clip" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        <section key={slide.id} className={`panel p-4 sm:p-6 ${dir < 0 ? 'recap-in-prev' : 'recap-in-next'}`} aria-roledescription="slide" aria-label={`${slide.title} · ${t('recap.of', { n: i + 1, total: count })}`}>
+          {slide.node}
+        </section>
       </div>
     </div>
   );

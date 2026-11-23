@@ -642,10 +642,15 @@ function awardValue(c: RecapCtx, a: Award): string {
   return t(`award.${a.id}.v` as StringKey, { v });
 }
 
+/** The player's nickname; the hero for a hidden profile. */
+const playerName = (c: RecapCtx, p: MatchPlayer) => p.name?.trim() || heroName(c, p);
+/** "value · Hero" when the nickname is shown, so the hero is still named. */
+const awardSub = (c: RecapCtx, a: Award, p: MatchPlayer) => (p.name?.trim() ? `${awardValue(c, a)} · ${heroName(c, p)}` : awardValue(c, a));
+
 export function awardsSlide(c: RecapCtx): Slide {
   const { t } = c.i18n;
   const mvp = c.awards.find((a) => a.id === 'mvp');
-  const title = mvp ? `${t('award.mvp')}: ${heroName(c, c.m.players[mvp.slot])}` : t('slide.awards');
+  const title = mvp ? `${t('award.mvp')}: ${playerName(c, c.m.players[mvp.slot])}` : t('slide.awards');
   return {
     id: 'awards',
     title: t('slide.awards'),
@@ -661,8 +666,8 @@ export function awardsSlide(c: RecapCtx): Slide {
                 <Portrait c={c} p={p} size={a.id === 'mvp' ? 52 : 40} />
                 <div className="min-w-0">
                   <div className={`text-[12px] font-semibold uppercase tracking-[0.06em] ${a.id === 'mvp' ? 'text-accent' : 'text-muted'}`}>{t(`award.${a.id}` as StringKey)}</div>
-                  <div className="truncate text-[14px] font-semibold text-ink">{heroName(c, p)}{c.me === a.slot ? ` · ${t('match.you')}` : ''}</div>
-                  <div className="truncate text-[12px] text-muted">{awardValue(c, a)}</div>
+                  <div className="truncate text-[14px] font-semibold text-ink">{playerName(c, p)}{c.me === a.slot ? ` · ${t('match.you')}` : ''}</div>
+                  <div className="truncate text-[12px] text-muted">{awardSub(c, a, p)}</div>
                 </div>
               </li>
             );
@@ -675,7 +680,7 @@ export function awardsSlide(c: RecapCtx): Slide {
       title,
       rows: c.awards.slice(0, 7).map((a) => {
         const p = c.m.players[a.slot];
-        return { hero: c.heroOf(p), title: `${t(`award.${a.id}` as StringKey)} · ${heroName(c, p)}`, sub: awardValue(c, a), tone: 'accent' as const };
+        return { hero: c.heroOf(p), title: `${t(`award.${a.id}` as StringKey)} · ${playerName(c, p)}`, sub: awardSub(c, a, p), tone: 'accent' as const };
       }),
       ...c.card,
     }),
@@ -1068,8 +1073,8 @@ function WardsBody({ c, w }: { c: RecapCtx; w: WardSummary }) {
           ))}
         </div>
       </div>
-      <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_200px]">
-        <div>
+      <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_240px]">
+        <div className="min-w-0">
           <WardMap c={c} wards={shown} />
           {shown.length === 0 && <p className="mt-2 text-[13px] text-muted">{t('wards.none')}</p>}
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted">
@@ -1078,7 +1083,7 @@ function WardsBody({ c, w }: { c: RecapCtx; w: WardSummary }) {
             {c.me != null && <span className="text-accent">○ {t('match.you')}</span>}
           </div>
         </div>
-        <div className="grid content-start gap-3">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-3">
           {[true, false].map((r) => {
             const v = r ? w.radiant : w.dire;
             return (
