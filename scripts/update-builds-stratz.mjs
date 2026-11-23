@@ -22,7 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { StratzTransport, loadToken, BUCKET_SEC, BRACKETS } from './update-data-stratz.mjs';
+import { StratzTransport, loadToken, BUCKET_SEC, BRACKETS, UpstreamEmptyError, upstreamOutageVerdict } from './update-data-stratz.mjs';
 import { POSITION_ELIGIBILITY } from './stratz/eligibility.mjs';
 import { accumulateHero, addAllRanks, buildHeroQuery, summarizeBuild, summarizeLanes, validateBuilds } from './stratz/builds.mjs';
 
@@ -189,6 +189,17 @@ async function main() {
 
   const transport = new StratzTransport(loadToken());
   await transport.init();
+  try {
+    // STRATZ can serve empty weeks for a while (after patch 7.42 the item
+    // endpoints returned nothing for two weeks): a probe on a hero everyone
+    // plays tells an outage from a real failure before ~640 requests.
+    const probe = await transport.query(`{ heroStats { ${buckets.map((b) => `w${b}: itemFullPurchase(heroId: 14, week: ${b * BUCKET_SEC}) { matchCount }`).join(' ')} } }`);
+    const probeGames = Object.values(probe.data?.heroStats ?? {}).flat().reduce((sum, r) => sum + (r?.matchCount ?? 0), 0);
+    if (!probeGames) throw new UpstreamEmptyError(`STRATZ returned no item purchases for weeks ${buckets.join(', ')}`);
+  } catch (e) {
+    await transport.close();
+    throw e;
+  }
   const nameOf = await fetchNames(transport);
   try {
     const builds = {};
@@ -311,6 +322,15 @@ async function main() {
 
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('update-builds-stratz.mjs')) {
   main().catch((e) => {
+    if (e?.code === 'UPSTREAM_EMPTY') {
+      let builtAt = '';
+      try { builtAt = readJson(path.join(OUT, 'index.json')).generatedAt; } catch { /* none */ }
+      // builds are weekly anyway: a longer grace than the daily dataset
+      if (upstreamOutageVerdict(builtAt, new Date(), 10) === 'KEEP') {
+        console.log(`::warning::STRATZ has no build data yet (${e.message}). Keeping the builds from ${builtAt}.`);
+        process.exit(0);
+      }
+    }
     console.error(`✗ builds update failed: ${e.message}`);
     process.exit(1);
   });

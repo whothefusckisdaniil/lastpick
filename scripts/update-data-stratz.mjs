@@ -635,6 +635,40 @@ export async function fetchMatchupsFromStratz(heroIds, windowInfo, { token, log 
 }
 
 /** The only files a refresh publishes (ТЗ №77: Counterpick data only). */
+/** STRATZ returned (almost) no games for the window: an upstream outage. */
+export class UpstreamEmptyError extends Error {
+  constructor(message) {
+    super(message);
+    this.code = 'UPSTREAM_EMPTY';
+  }
+}
+
+/** Throws UpstreamEmptyError when fewer than half the pair rows have games. */
+export function assertUpstreamHasData(table) {
+  let rows = 0;
+  let withGames = 0;
+  for (const list of Object.values(table)) {
+    for (const r of list) {
+      rows += 1;
+      if (r.games_played > 0) withGames += 1;
+    }
+  }
+  if (rows > 0 && withGames / rows < 0.5) {
+    throw new UpstreamEmptyError(`STRATZ returned games for only ${withGames} of ${rows} hero pairs in this window`);
+  }
+}
+
+/**
+ * The run's verdict on an upstream outage: while the published data is
+ * recent, it is kept and the run ends green with a warning (nothing on our
+ * side is broken, and the site keeps working). Once it is older than
+ * `maxAgeDays` the run fails, so a long outage is not missed.
+ */
+export function upstreamOutageVerdict(publishedAtIso, now = new Date(), maxAgeDays = 4) {
+  const age = (now.getTime() - Date.parse(publishedAtIso)) / 86_400_000;
+  return Number.isFinite(age) && age < maxAgeDays ? 'KEEP' : 'FAIL';
+}
+
 export const PUBLISHED_FILES = Object.freeze([
   'heroes.json', 'matchups.json', 'positions.json', 'meta.json', 'matchups-by-bracket.json',
   'synergy.json', 'synergy-by-bracket.json', 'role-stats.json',
@@ -767,6 +801,11 @@ export async function buildDataset({
   const synergyComplete = BRACKETS.every((b) => rawSynergyByBracket[b]);
   log('4/6 Fetching STRATZ positions...');
   const positions = await fetchPositions(heroIds, windowInfo, { log });
+
+  // STRATZ sometimes serves empty weeks for a while (seen after patch 7.42:
+  // the weeks already published came back with 0 games). That is not broken
+  // data on our side — report it as such instead of a contract failure.
+  assertUpstreamHasData(matchups);
 
   // 5. Strict 13-point data contract validation, against the FRESH roster.
   log('5/6 Validating dataset integrity contract...');
@@ -996,6 +1035,17 @@ const isDirectRun =
 
 if (isDirectRun) {
   main().catch((err) => {
+    if (err?.code === 'UPSTREAM_EMPTY') {
+      let publishedAt = '';
+      try {
+        publishedAt = JSON.parse(readFileSync(path.join(DATA_DIR, 'meta.json'), 'utf8')).generatedAt;
+      } catch { /* no published dataset */ }
+      if (upstreamOutageVerdict(publishedAt) === 'KEEP') {
+        console.log(`\n::warning::STRATZ has no data for this window yet (${err.message}). Keeping the dataset from ${publishedAt}.`);
+        process.exit(0);
+      }
+      console.error(`\nSTRATZ has had no data for too long — the dataset from ${publishedAt || '?'} is stale.`);
+    }
     console.error('\nUPDATE FAILED — production public/data left completely untouched!');
     console.error(err);
     process.exit(1);
