@@ -379,3 +379,27 @@ describe('STRATZ norms in the recap', () => {
     if (c) expect(c.even).toBe(true);
   });
 });
+
+describe('match cache', () => {
+  it('drops models of an older shape instead of returning them', async () => {
+    const store = new Map<string, string>();
+    const ls = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+    Object.defineProperty(globalThis, 'localStorage', { value: ls, configurable: true });
+    const { cachedMatch } = await import('./api');
+    const { MODEL_VERSION } = await import('./model');
+    const old = { ...parsed } as Partial<MatchModel>;
+    delete old.wards;
+    store.set('lp.matches.v1', JSON.stringify({ [parsed.id]: { at: 1, model: old } }));
+    store.set('lp.matches', JSON.stringify({ [parsed.id]: { at: 1, model: old } }));
+    expect(cachedMatch(parsed.id)).toBeNull();
+    expect(store.has('lp.matches.v1')).toBe(false);
+    store.set('lp.matches', JSON.stringify({ [parsed.id]: { at: 1, v: MODEL_VERSION, model: parsed } }));
+    expect(cachedMatch(parsed.id)?.id).toBe(parsed.id);
+  });
+
+  it('analysis survives a model without the newer fields', () => {
+    const old = { ...parsed, wards: undefined, teamfights: parsed.teamfights.map((f) => ({ ...f, players: undefined })) } as unknown as MatchModel;
+    expect(wardSummary(old)).toBeNull();
+    expect(fights(old)).toEqual([]);
+  });
+});

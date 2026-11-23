@@ -19,7 +19,7 @@ export function lifetime(w: MatchWard, duration: number): number {
 }
 
 export function wardSummary(m: MatchModel): WardSummary | null {
-  if (!m.parsed || m.wards.length === 0) return null;
+  if (!m.parsed || !m.wards?.length) return null;
   const team = (radiant: boolean): TeamVision => {
     const own = m.wards.filter((w) => w.radiant === radiant);
     const obs = own.filter((w) => w.kind === 'obs');

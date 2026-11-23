@@ -19,6 +19,7 @@ import { PickerSheet } from './components/PickerSheet';
 import { DiamondLoader, EmptyDiamonds, Logo } from './components/Brand';
 import { ScoringPlayground } from './components/ScoringPlayground';
 import { DraftValidation } from './components/DraftValidation';
+import { MatchErrorBoundary } from './components/match/MatchErrorBoundary';
 
 const SHOW_PLAYGROUND = import.meta.env.DEV;
 // Match analysis: its own chunk, the draft page does not download it.
@@ -197,9 +198,11 @@ export default function App() {
         )}
 
         {page === 'match' && (
-          <Suspense fallback={<div className="mt-10 flex justify-center"><DiamondLoader label={t('match.loading')} /></div>}>
-            <MatchPage />
-          </Suspense>
+          <MatchErrorBoundary text={t('match.crash')} reset={t('match.crashReset')}>
+            <Suspense fallback={<div className="mt-10 flex justify-center"><DiamondLoader label={t('match.loading')} /></div>}>
+              <MatchPage />
+            </Suspense>
+          </MatchErrorBoundary>
         )}
 
         {page === 'main' && SHOW_PLAYGROUND && view === 'lab' && <ScoringPlayground />}

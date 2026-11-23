@@ -1,4 +1,4 @@
-import type { MatchModel } from './model';
+import { MODEL_VERSION, type MatchModel } from './model';
 import { normalizeMatch, type RawMatch } from './normalize';
 
 /**
@@ -7,7 +7,9 @@ import { normalizeMatch, type RawMatch } from './normalize';
  * itself spends nothing. Matches are cached in localStorage (last few).
  */
 const API = 'https://api.opendota.com/api';
-const CACHE_KEY = 'lp.matches.v1';
+const CACHE_KEY = 'lp.matches';
+/** Older keys, removed on the first read. */
+const OLD_KEYS = ['lp.matches.v1'];
 const CACHE_MAX = 6;
 
 export type MatchErrorKind = 'notFound' | 'rateLimit' | 'network' | 'server';
@@ -15,16 +17,27 @@ export class MatchError extends Error {
   constructor(public kind: MatchErrorKind) { super(kind); }
 }
 
-type Cached = { at: number; model: MatchModel };
+type Cached = { at: number; v?: number; model: MatchModel };
 
+/** Cached matches of the current model version only (an older shape would crash the slides). */
 function readCache(): Record<string, Cached> {
-  try { return JSON.parse(localStorage.getItem(CACHE_KEY) ?? '{}') as Record<string, Cached>; } catch { return {}; }
+  try {
+    for (const k of OLD_KEYS) localStorage.removeItem(k);
+    const all = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '{}') as Record<string, Cached>;
+    return Object.fromEntries(Object.entries(all).filter(([, c]) => c?.v === MODEL_VERSION && c.model?.players?.length));
+  } catch {
+    return {};
+  }
+}
+
+export function clearMatchCache() {
+  try { for (const k of [CACHE_KEY, ...OLD_KEYS]) localStorage.removeItem(k); } catch { /* ignore */ }
 }
 
 function writeCache(model: MatchModel) {
   try {
     const all = readCache();
-    all[model.id] = { at: Date.now(), model };
+    all[model.id] = { at: Date.now(), v: MODEL_VERSION, model };
     const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, CACHE_MAX);
     localStorage.setItem(CACHE_KEY, JSON.stringify(Object.fromEntries(keep)));
   } catch { /* storage full or blocked: no cache */ }

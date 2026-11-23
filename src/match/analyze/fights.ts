@@ -22,7 +22,7 @@ export interface FightSummary {
 export const TRADE_GOLD = 600;
 
 export function fights(m: MatchModel): FightSummary[] {
-  const list: FightSummary[] = m.teamfights.map((f) => {
+  const list: FightSummary[] = (m.teamfights ?? []).filter((f) => Array.isArray(f.players)).map((f) => {
     const radiantWon = f.radiantDeaths !== f.direDeaths ? f.radiantDeaths < f.direDeaths
       : Math.abs(f.goldSwing) >= TRADE_GOLD ? f.goldSwing > 0 : null;
     const killers = f.players.map((p, slot) => ({ slot, kills: p.kills })).filter((x) => x.kills > 0).sort((a, b) => b.kills - a.kills);

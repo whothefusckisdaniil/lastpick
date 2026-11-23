@@ -100,6 +100,12 @@ export interface MatchWard {
 
 export interface PickBan { heroId: number; pick: boolean; radiant: boolean; order: number }
 
+/**
+ * Bump on any change of MatchModel's shape: cached models (localStorage) of an
+ * older version are dropped and refetched instead of crashing new code.
+ */
+export const MODEL_VERSION = 3;
+
 export interface MatchModel {
   id: number;
   startTime: number;
