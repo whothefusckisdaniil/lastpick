@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { CandidateScore, Hero } from '../types';
 import type { Freshness } from '../data/dataset';
-import { HERO_NAMES_RU } from './heroNamesRu';
 import { STRINGS, type StringKey } from './strings';
 
 export type Lang = 'en' | 'ru';
@@ -47,9 +46,13 @@ export function heroKey(h: Hero): string {
   return h.key.replace('npc_dota_hero_', '');
 }
 
-/** Display name in the given language (RU falls back to English for an unknown hero). */
-export function heroDisplayName(h: Hero, lang: Lang): string {
-  return lang === 'ru' ? HERO_NAMES_RU[heroKey(h)]?.ru ?? h.name : h.name;
+/**
+ * Display name: the English game name in every language (Russian translations
+ * of hero names read oddly; players know the English ones). Russian names and
+ * slang stay searchable — see searchHeroes in src/data/heroes.ts.
+ */
+export function heroDisplayName(h: Hero, _lang?: Lang): string {
+  return h.name;
 }
 
 export interface I18n {
@@ -72,7 +75,7 @@ function makeI18n(lang: Lang, setLang: (l: Lang) => void): I18n {
     setLang,
     t,
     heroName: (h) => heroDisplayName(h, lang),
-    heroAltName: (h) => (lang === 'ru' && HERO_NAMES_RU[heroKey(h)] ? h.name : null),
+    heroAltName: () => null,
     role: (r) => (lang === 'ru' ? ROLES_RU[r] ?? r : r),
     plural: (n, key) => {
       if (lang === 'en') return n === 1 ? EN_FORMS[key][0] : EN_FORMS[key][1];

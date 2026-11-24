@@ -65,8 +65,8 @@ describe('Russian hero names', () => {
     }
   });
 
-  it('display name follows the language and falls back to English for an unknown hero', () => {
-    expect(heroDisplayName(byName('Shadow Fiend'), 'ru')).toBe('Шадоу Финд');
+  it('display name is the English game name in every language', () => {
+    expect(heroDisplayName(byName('Shadow Fiend'), 'ru')).toBe('Shadow Fiend');
     expect(heroDisplayName(byName('Shadow Fiend'), 'en')).toBe('Shadow Fiend');
     expect(heroDisplayName({ ...byName('Pudge'), key: 'npc_dota_hero_new_guy', name: 'New Guy' }, 'ru')).toBe('New Guy');
   });
@@ -128,15 +128,15 @@ describe('explainCandidate (RU)', () => {
     heroName: (h) => heroDisplayName(h, 'ru'), heroAltName: () => null, role: (r) => r,
     plural: (n) => String(n), number: (n) => String(n),
   };
-  it('names enemies in Russian and keeps the numbers', () => {
+  it('Russian text, English hero names, numbers kept', () => {
     const puck = byName('Puck');
     const tide = byName('Tidehunter');
     const m = (enemyId: number, delta: number) => ({ enemyId, delta, usable: true, games: 5000, winsForCandidate: 0, winrate: 50, expectedWinrate: 50, rawDelta: delta });
     const c = { matchups: [m(puck.id, 3.2), m(tide.id, -2.5)], avgGames: 5000, positionScore: 8 } as unknown as CandidateScore;
     const lines = explainCandidate(c, 'Мид', ruI18n, new Map(heroes.map((h) => [h.id, h])));
     expect(lines).toEqual([
-      'Статистически выгоден против: Пак.',
-      'Слабое место: Тайдхантер (−2.5).',
+      'Статистически выгоден против: Puck.',
+      'Слабое место: Tidehunter (−2.5).',
       'Выигрывает матчап у 1 из 2 выбранных врагов.',
       'Большая выборка — высокая уверенность.',
       'Хорошо подходит на роль: Мид.',

@@ -83,8 +83,6 @@ export function HeroSearch({ heroes, excluded, onPick, disabled }: Props) {
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-semibold text-ink">{i18n.heroName(h)}</span>
                 <span className="block truncate text-xs text-muted">
-                  {/* the other language's name helps match the in-game (English) name */}
-                  {i18n.lang === 'ru' ? `${h.name} · ` : h.nameRu ? `${h.nameRu} · ` : ''}
                   {h.roles.slice(0, 3).map(i18n.role).join(' / ')}
                 </span>
               </span>
