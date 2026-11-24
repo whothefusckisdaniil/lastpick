@@ -47,9 +47,25 @@ export function cachedMatch(id: number): MatchModel | null {
   return readCache()[id]?.model ?? null;
 }
 
+/** Give up on a request after this long (OpenDota down = Cloudflare waits ~20 s). */
+export const FETCH_TIMEOUT_MS = 15000;
+
+/**
+ * A failed request: offline → our network; online → OpenDota itself (when it is
+ * down, Cloudflare's error page has no CORS header, so the browser only shows a
+ * "CORS" failure and the status is unreadable).
+ */
+function failedKind(): MatchErrorKind {
+  return typeof navigator !== 'undefined' && navigator.onLine === false ? 'network' : 'server';
+}
+
+function timeoutSignal(): AbortSignal | undefined {
+  return typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined;
+}
+
 async function get<T>(path: string): Promise<T> {
   let res: Response;
-  try { res = await fetch(`${API}${path}`); } catch { throw new MatchError('network'); }
+  try { res = await fetch(`${API}${path}`, { signal: timeoutSignal() }); } catch { throw new MatchError(failedKind()); }
   if (res.status === 429) throw new MatchError('rateLimit');
   if (res.status === 404) throw new MatchError('notFound');
   if (!res.ok) throw new MatchError(res.status >= 500 ? 'server' : 'notFound');
@@ -71,7 +87,7 @@ export async function fetchMatch(id: number, heroKeyOf: (heroId: number) => stri
     return model;
   } catch (e) {
     // over the limit or offline: an older copy is better than nothing
-    if (hit && e instanceof MatchError && (e.kind === 'rateLimit' || e.kind === 'network')) return hit;
+    if (hit && e instanceof MatchError && (e.kind === 'rateLimit' || e.kind === 'network' || e.kind === 'server')) return hit;
     throw e;
   }
 }
@@ -79,7 +95,7 @@ export async function fetchMatch(id: number, heroKeyOf: (heroId: number) => stri
 /** Ask OpenDota to download and parse the replay. */
 export async function requestParse(id: number): Promise<void> {
   let res: Response;
-  try { res = await fetch(`${API}/request/${id}`, { method: 'POST' }); } catch { throw new MatchError('network'); }
+  try { res = await fetch(`${API}/request/${id}`, { method: 'POST', signal: timeoutSignal() }); } catch { throw new MatchError(failedKind()); }
   if (res.status === 429) throw new MatchError('rateLimit');
   if (!res.ok) throw new MatchError('server');
 }
@@ -111,7 +127,8 @@ export async function waitForParse(
       const m = await fetchMatch(id, heroKeyOf, { fresh: true });
       if (m.parsed) return m;
     } catch (e) {
-      if (!(e instanceof MatchError) || e.kind !== 'rateLimit') throw e;
+      // a short OpenDota hiccup does not end the wait; the time limit does
+      if (!(e instanceof MatchError) || e.kind === 'notFound') throw e;
     }
   }
   return null;

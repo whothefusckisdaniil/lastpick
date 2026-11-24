@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import heroesRaw from '../../public/data/heroes.json';
 import buildIndex from '../../public/builds/index.json';
 import parsedRaw from './fixtures/parsed-ranked.json';
@@ -14,7 +14,7 @@ import { hasRealDraft, type MatchModel } from './model';
 import { STORY, swings, verdict } from './analyze/story';
 import { awards, economy, killShare, lobbyBracket, positions } from './analyze/players';
 import { reviewBuild } from './analyze/builds';
-import { pollDelay, POLL_LIMIT_MS } from './api';
+import { fetchMatch, MatchError, pollDelay, POLL_LIMIT_MS } from './api';
 import { fights, fightScore } from './analyze/fights';
 import { laning } from './analyze/lanes';
 import { deaths, DEATHS } from './analyze/deaths';
@@ -401,5 +401,25 @@ describe('match cache', () => {
     const old = { ...parsed, wards: undefined, teamfights: parsed.teamfights.map((f) => ({ ...f, players: undefined })) } as unknown as MatchModel;
     expect(wardSummary(old)).toBeNull();
     expect(fights(old)).toEqual([]);
+  });
+});
+
+describe('OpenDota outage', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const keyOf = () => 'hero';
+
+  it('a blocked / failed request while online is an OpenDota outage, not the viewer\'s network', async () => {
+    // when OpenDota is down Cloudflare answers 522 without CORS headers: fetch just rejects
+    vi.stubGlobal('fetch', async () => { throw new TypeError('Failed to fetch'); });
+    const err = await fetchMatch(123456789, keyOf).catch((e) => e);
+    expect(err).toBeInstanceOf(MatchError);
+    expect((err as MatchError).kind).toBe('server');
+  });
+
+  it('offline is the viewer\'s network', async () => {
+    vi.stubGlobal('fetch', async () => { throw new TypeError('Failed to fetch'); });
+    vi.stubGlobal('navigator', { onLine: false });
+    const err = await fetchMatch(123456789, keyOf).catch((e) => e);
+    expect((err as MatchError).kind).toBe('network');
   });
 });
