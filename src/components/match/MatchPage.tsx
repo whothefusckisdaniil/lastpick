@@ -23,6 +23,7 @@ import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
 import { RecapPlayer } from './RecapPlayer';
 import { MyMatches } from './MyMatches';
+import { trackOnce } from '../../analytics';
 import { useSlides, type BuildInfo, type DraftInfo, type Loadable, type RecapCtx } from './slides';
 
 const ME_KEY = 'lp.dotaId';
@@ -108,6 +109,8 @@ export default function MatchPage() {
   const [build, setBuild] = useState<Loadable<BuildInfo>>({ status: 'loading' });
   const [pickedSlot, setPickedSlot] = useState<number | null>(null);
   const [nonce, setNonce] = useState(0);
+  /** How the current match was opened (analytics only). */
+  const openedVia = useRef<'link' | 'input' | 'recent'>('link');
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => { loadDataset().then(setDataset).catch(() => setDataset(null)); }, []);
@@ -243,6 +246,7 @@ export default function MatchPage() {
     setInputError(!next);
     if (!next) return;
     setPickedSlot(null);
+    openedVia.current = 'input';
     if (next === id) setNonce((n) => n + 1); else setId(next);
   }
 
@@ -251,6 +255,7 @@ export default function MatchPage() {
     setText(String(matchId));
     setInputError(false);
     setPickedSlot(null);
+    openedVia.current = 'recent';
     setMeParam(String(accountId));
     try { localStorage.setItem(ME_KEY, String(accountId)); } catch { /* ignore */ }
     if (matchId === id) setNonce((n) => n + 1); else setId(matchId);
@@ -315,6 +320,18 @@ export default function MatchPage() {
   const slides = useSlides(ctx);
   // an unparsed match: wait for the parse instead of showing the short version
   const waiting = !!model && !model.parsed && !skipParse && parse.kind !== 'timeout' && parse.kind !== 'failed';
+
+  // analytics: the analysis counts once it is on screen — loaded, and not
+  // waiting for the replay parse (an API error never gets here)
+  const shownMatch = model && ctx && slides.length > 0 && !waiting ? model : null;
+  useEffect(() => {
+    if (!shownMatch) return;
+    // lobby 7 = ranked; otherwise by game mode (1 / 22 = All Pick, 23 = Turbo)
+    const mode = shownMatch.lobbyType === 7 ? 'ranked' : shownMatch.gameMode === 23 ? 'turbo' : [1, 22].includes(shownMatch.gameMode) ? 'all_pick' : 'other';
+    trackOnce(`${shownMatch.id}|${shownMatch.parsed}`, 'match_analysis_loaded', {
+      parsed: shownMatch.parsed, perspective: me != null ? 'player' : 'match', source: openedVia.current, mode,
+    });
+  }, [shownMatch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="mx-auto max-w-3xl">

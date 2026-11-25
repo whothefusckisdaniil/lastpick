@@ -182,7 +182,7 @@ const en = {
   'privacy.noAccount': 'No account required.',
   'privacy.noData': 'No personal data stored.',
   'privacy.noSteam': 'No Steam login required.',
-  'privacy.analytics': 'Anonymous visit statistics (Vercel Web Analytics): page views, country, device and browser type. No cookies, no account, nothing that identifies you.',
+  'privacy.analytics': 'Anonymous statistics. Visits (Vercel Web Analytics): page views, country, device and browser type. Feature use (PostHog): which tools were used — e.g. “recommendations shown for position 2, 5 enemies” or “a card was saved” — under a random ID kept in this browser. Never your Dota ID, match IDs, nicknames or the heroes you picked. No cookies, no account, no session recording.',
   'privacy.note': 'The site collects no Steam or Dota IDs: anything you enter stays in your browser.',
 
   'footer.matchups': 'Data:',
@@ -938,7 +938,7 @@ const ru: Record<StringKey, string> = {
   'privacy.noAccount': 'Регистрация не нужна.',
   'privacy.noData': 'Персональные данные не хранятся.',
   'privacy.noSteam': 'Вход через Steam не нужен.',
-  'privacy.analytics': 'Анонимная статистика посещений (Vercel Web Analytics): просмотры страниц, страна, тип устройства и браузера. Без cookie и аккаунтов, ничего, что указывает на вас лично.',
+  'privacy.analytics': 'Анонимная статистика. Посещения (Vercel Web Analytics): просмотры страниц, страна, тип устройства и браузера. Использование функций (PostHog): какими инструментами пользовались — например, «показаны рекомендации для позиции 2, 5 врагов» или «сохранена карточка» — под случайным ID, который хранится в этом браузере. Никогда не отправляются ваш Dota ID, ID матчей, ники и выбранные герои. Без cookie, аккаунтов и записи сессий.',
   'privacy.note': 'Сайт не собирает Steam ID и Dota ID: всё, что вы вводите, остаётся в вашем браузере.',
 
   'footer.matchups': 'Данные:',

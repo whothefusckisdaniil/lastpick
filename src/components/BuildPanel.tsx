@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Hero } from '../types';
+import { rankProp, trackOnce } from '../analytics';
+import type { PositionProp } from '../analytics/types';
 import { chooseBuild, loadBuildIndex, loadHeroBuild, type Build, type BuildIndex, type HeroBuilds } from '../data/dataset';
 import { useI18n } from '../i18n';
 import type { StringKey } from '../i18n/strings';
@@ -68,6 +70,13 @@ export function BuildPanel({ hero, preferLane, onLane, onClose, enemies = [], al
   const byRank = lane ? state.builds?.positions[lane] : undefined;
   const { build, rank: shownRank } = chooseBuild(byRank);
   const ix = state.index;
+
+  // analytics: a build counts when it is actually on screen (loaded, has data)
+  const shown = state.status === 'ready' && !!lane && !!build;
+  useEffect(() => {
+    if (!shown || !lane) return;
+    trackOnce(`${hero.id}|${lane}|${shownRank}`, 'hero_build_viewed', { position: lane as PositionProp, rank: rankProp(shownRank) });
+  }, [shown, hero.id, lane, shownRank]);
 
   const item = (id: number) => ix?.items[id];
   const suggestions = useMemo<ItemSuggestion[]>(

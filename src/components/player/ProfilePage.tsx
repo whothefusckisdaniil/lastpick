@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../../i18n';
 import type { StringKey } from '../../i18n/strings';
 import type { Hero } from '../../types';
@@ -17,6 +17,8 @@ import { medalSrc } from '../Selectors';
 import { Avatar } from './PoolResults';
 import { CompareSection, LearnSection, PatchSection } from './ProfileV3';
 import { StatTile, Tabs } from '../ui';
+
+import { trackOnce, trackEvent } from '../../analytics';
 
 type Load =
   | { kind: 'idle' }
@@ -133,6 +135,8 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   const [text, setText] = useState('');
   const [hint, setHint] = useState<'vanity' | null>(null);
   const [viewId, setViewId] = useState<number | null>(() => urlPlayer() ?? me.id);
+  /** How the shown profile was opened (analytics only). */
+  const openedVia = useRef<'saved' | 'input' | 'search' | 'link'>(urlPlayer() != null ? 'link' : 'saved');
   const [load, setLoad] = useState<Load>({ kind: 'idle' });
   const [search, setSearch] = useState<Search>({ kind: 'idle' });
   const [sort, setSort] = useState<HeroSort>('games');
@@ -154,7 +158,15 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     let alive = true;
     setLoad({ kind: 'loading' });
     fetchProfile(viewId, { fresh: nonce > 0 })
-      .then(({ profile, stale }) => alive && setLoad({ kind: 'ready', profile, stale }))
+      .then(({ profile, stale }) => {
+        if (!alive) return;
+        setLoad({ kind: 'ready', profile, stale });
+        // once per profile per visit: a refresh is not a new profile view
+        trackOnce(String(profile.id), 'player_profile_loaded', {
+          visibility: profile.hidden ? 'limited' : 'open', rank: rankInfo(profile.rankTier)?.medal ?? 'none',
+          isMe: me.id === profile.id, stale, source: openedVia.current,
+        });
+      })
       .catch((e) => alive && setLoad({ kind: 'error', error: e instanceof PlayerError ? e.kind : 'server' }));
     return () => { alive = false; };
   }, [viewId, nonce]);
@@ -210,7 +222,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     setHint(null);
     if (input.kind === 'empty') return;
     if (input.kind === 'vanity') { setHint('vanity'); return; }
-    if (input.kind === 'id') { setSearch({ kind: 'idle' }); setViewId(input.id); return; }
+    if (input.kind === 'id') { setSearch({ kind: 'idle' }); openedVia.current = 'input'; setViewId(input.id); return; }
     setSearch({ kind: 'loading', q: input.q });
     try {
       const hits = await searchPlayers(input.q);
@@ -264,8 +276,9 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     setShare('making');
     try {
       const blob = await renderRecapCard(format, card());
-      await deliverImages([new File([blob], `lastpick-profile-${format}.png`, { type: 'image/png' })], `${window.location.origin}/`);
+      const result = await deliverImages([new File([blob], `lastpick-profile-${format}.png`, { type: 'image/png' })], `${window.location.origin}/`);
       setShare('idle');
+      if (result !== 'cancelled') trackEvent('share_created', { surface: 'profile', kind: 'image', format });
     } catch (e) {
       console.error(e);
       setShare('failed');
@@ -273,7 +286,11 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   }
 
   async function copy(text: string, ok: 'copied' | 'copiedMe') {
-    try { await navigator.clipboard.writeText(text); setShare(ok); } catch { setShare('failed'); }
+    try {
+      await navigator.clipboard.writeText(text);
+      setShare(ok);
+      trackEvent('share_created', { surface: 'profile', kind: 'link', format: 'none' });
+    } catch { setShare('failed'); }
   }
 
   const days = daysSince(profile?.lastPlayed ?? null);
@@ -301,7 +318,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
             <ul className="grid gap-1.5 sm:grid-cols-2">
               {search.hits.map((h) => (
                 <li key={h.id}>
-                  <button type="button" onClick={() => { setViewId(h.id); setSearch({ kind: 'idle' }); }} className="panel-2 flex w-full items-center gap-2.5 px-2.5 py-2 text-left hover:border-line-2">
+                  <button type="button" onClick={() => { openedVia.current = 'search'; setViewId(h.id); setSearch({ kind: 'idle' }); }} className="panel-2 flex w-full items-center gap-2.5 px-2.5 py-2 text-left hover:border-line-2">
                     <Avatar src={h.avatar} name={h.name} size={36} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[14px] font-semibold text-ink">{h.name}</span>

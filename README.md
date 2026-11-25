@@ -30,7 +30,19 @@ The app recommends heroes and shows the **statistical build** of your own hero (
 
 - **Share:** the Share menu copies the draft link or makes a draft card image — enemies + top counterpicks, LASTPICK branding, site address — as 1080×1920 (stories / TikTok, content kept out of the top/bottom 250 px) or 1200×630 (post). Drawn on a canvas in the browser (`src/share/shareCard.ts`); phones get the system share sheet with the file, desktops download it.
 
-- **Analytics:** Vercel Web Analytics (`@vercel/analytics`, mounted in `src/main.tsx`): cookieless visitor and page-view counts, countries, devices, referrers in the Vercel dashboard → Analytics (enable it there once). The draft query string is stripped before sending (`src/analytics.ts`), one view per page per visit, and visits that opened a shared draft link are reported as `/?via=draft-link`. Mentioned on the Privacy page.
+- **Analytics:** Vercel Web Analytics (`@vercel/analytics`, mounted in `src/main.tsx`): cookieless visitor and page-view counts, countries, devices, referrers in the Vercel dashboard → Analytics (enable it there once). The draft query string is stripped before sending (`src/analytics/vercel.ts`), one view per page per visit, and visits that opened a shared draft link are reported as `/?via=draft-link`. Mentioned on the Privacy page.
+- **Product analytics:** one interface for the whole app, `trackEvent(name, props)` / `trackOnce(key, name, props)` from `src/analytics` (`events.ts` = the event catalogue and the only keys each event may carry, `types.ts` = typed props, `index.ts` = sending + providers). Provider today: **PostHog Free** over its plain capture API (`posthog.ts`, no SDK — no autocapture, no session replay, no cookies; personless events under a random ID in `localStorage['lp.aid']`). Enabled only in production builds with `VITE_POSTHOG_KEY` (+ `VITE_POSTHOG_HOST`, e.g. `https://eu.i.posthog.com`) set in Vercel → Settings → Environment Variables; without it nothing is sent. Events, each fired only after the action succeeded and at most once per thing per visit:
+
+  | Event | When | Props |
+  |---|---|---|
+  | `draft_results_viewed` | recommendations on screen for 1.5 s (one draft, not every pick) | position, rank, enemyCount, allyCount, banCount, pool |
+  | `match_analysis_loaded` | analysis rendered (not on API error, not while waiting for the parse) | parsed, perspective, source (recent / input / link), mode |
+  | `player_profile_loaded` | profile loaded (a refresh is not counted again) | visibility, rank (medal), isMe, stale, source |
+  | `my_pool_applied` | "My pool" recommendations shown (once per switch-on) | position, rank, poolSize (bucket), lowData |
+  | `hero_build_viewed` | a statistical build on screen (once per hero / position / rank) | position, rank |
+  | `share_created` | link copied or image saved / shared (not on cancel) | surface, kind, format |
+
+  Never sent: Steam / Dota IDs, match IDs, nicknames, the heroes of a draft (the payload is whitelisted per event and tested). Every event also carries lang, device (mobile / tablet / desktop) and installed (PWA).
 
 ## Run
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18n } from '../../i18n';
 import type { CardFormat } from '../../share/shareCard';
 import { deliverImages, renderRecapCard } from '../../share/matchCards';
+import { trackEvent } from '../../analytics';
 import type { Slide } from './slides';
 
 const MODE_KEY = 'lp.recapMode';
@@ -78,8 +79,9 @@ export function RecapPlayer({ slides, matchId, shareUrl }: { slides: Slide[]; ma
         const blob = await renderRecapCard(format, s.card());
         files.push(new File([blob], `lastpick-${matchId}-${s.id}-${format}.png`, { type: 'image/png' }));
       }
-      await deliverImages(files, shareUrl);
+      const result = await deliverImages(files, shareUrl);
       setStatus('idle');
+      if (result !== 'cancelled') trackEvent('share_created', { surface: 'match', kind: 'image', format });
     } catch (e) {
       console.error(e);
       setStatus('failed');
@@ -122,7 +124,7 @@ export function RecapPlayer({ slides, matchId, shareUrl }: { slides: Slide[]; ma
           </button>
           {menu && (
             <div className="menu !w-[300px]" role="menu">
-              <button type="button" role="menuitem" className="menu-item" onClick={async () => { setMenu(false); setStatus((await copyText(shareUrl)) ? 'copied' : 'failed'); }}>{t('recap.link')}</button>
+              <button type="button" role="menuitem" className="menu-item" onClick={async () => { setMenu(false); const ok = await copyText(shareUrl); setStatus(ok ? 'copied' : 'failed'); if (ok) trackEvent('share_created', { surface: 'match', kind: 'link', format: 'none' }); }}>{t('recap.link')}</button>
               {mode === 'slides' && <button type="button" role="menuitem" className="menu-item" onClick={() => exportCards([slides[i]], 'story')}>{t('recap.shareSlide')} · 1080×1920</button>}
               {mode === 'slides' && <button type="button" role="menuitem" className="menu-item" onClick={() => exportCards([slides[i]], 'post')}>{t('recap.shareSlide')} · 1200×630</button>}
               <button type="button" role="menuitem" className="menu-item" onClick={() => exportCards(slides, 'story')}>{t('recap.shareAll')} · 1080×1920</button>

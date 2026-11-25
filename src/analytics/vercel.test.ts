@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { analyticsUrl, beforeSend, resetAnalyticsState } from './analytics';
+import { analyticsUrl, beforeSend, resetAnalyticsState } from './index';
 
 const pv = (url: string) => beforeSend({ type: 'pageview', url });
 

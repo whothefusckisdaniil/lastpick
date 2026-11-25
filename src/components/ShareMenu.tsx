@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { trackEvent } from '../analytics';
 import { shareableUrl } from '../data/draftUrl';
 import { useI18n } from '../i18n';
 import { renderShareCard, type CardData, type CardFormat } from '../share/shareCard';
@@ -53,7 +54,9 @@ export function ShareMenu({ card, align = 'right' }: { card: () => CardData; ali
 
   async function link() {
     setOpen(false);
-    setStatus((await copyText(shareableUrl(window.location.href))) ? 'copied' : 'failed');
+    const ok = await copyText(shareableUrl(window.location.href));
+    setStatus(ok ? 'copied' : 'failed');
+    if (ok) trackEvent('share_created', { surface: 'draft', kind: 'link', format: 'none' });
   }
 
   async function image(format: CardFormat) {
@@ -68,6 +71,7 @@ export function ShareMenu({ card, align = 'right' }: { card: () => CardData; ali
         try {
           await nav.share({ files: [file], title: 'LASTPICK', text: url });
           setStatus('idle');
+          trackEvent('share_created', { surface: 'draft', kind: 'image', format });
           return;
         } catch (e) {
           if ((e as DOMException)?.name === 'AbortError') { setStatus('idle'); return; }
@@ -81,6 +85,7 @@ export function ShareMenu({ card, align = 'right' }: { card: () => CardData; ali
       a.remove();
       window.setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       setStatus('saved');
+      trackEvent('share_created', { surface: 'draft', kind: 'image', format });
     } catch (e) {
       console.error(e);
       setStatus('failed');

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { rankProp, resetOnce, trackOnce } from './analytics';
 import { useDraftData } from './data/useDraftData';
 import { freshness } from './data/dataset';
 import { freshnessText, useI18n } from './i18n';
@@ -138,6 +139,29 @@ export default function App() {
   const resultsKey = [d.enemies.join(), d.allies.join(), d.bans.join(), d.position, d.rank].join('|');
   const name = (id: number) => { const h = d.heroById.get(id); return h ? i18n.heroName(h) : `#${id}`; };
   const showMain = page === 'main' && !(SHOW_PLAYGROUND && view !== 'draft');
+
+  // Product analytics. A draft counts once its recommendations have been on
+  // screen for a moment (picking five heroes in a row is one draft, not five).
+  const poolShown = showMain && me.poolOn && !!me.profile && !!d.poolResults && !!d.pool;
+  const draftShown = showMain && !!d.results;
+  useEffect(() => {
+    if (!draftShown) return;
+    const timer = window.setTimeout(() => trackOnce(`${resultsKey}|${poolShown}`, 'draft_results_viewed', {
+      position: d.position, rank: rankProp(d.rank),
+      enemyCount: d.enemies.length, allyCount: d.allies.length, banCount: d.bans.length, pool: poolShown,
+    }), 1500);
+    return () => window.clearTimeout(timer);
+  }, [draftShown, resultsKey, poolShown]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "My pool" applied: once per switch-on, when its recommendations are shown
+  useEffect(() => {
+    if (!me.poolOn) { resetOnce('my_pool_applied', 'on'); return; }
+    if (!poolShown || !d.pool) return;
+    const n = d.pool.heroes.size;
+    trackOnce('on', 'my_pool_applied', {
+      position: d.position, rank: rankProp(d.rank),
+      poolSize: n < 10 ? '<10' : n < 20 ? '10-19' : n < 40 ? '20-39' : '40+', lowData: d.pool.lowData,
+    });
+  }, [me.poolOn, poolShown]); // eslint-disable-line react-hooks/exhaustive-deps
   const rankName = d.rank === 'ALL' || d.rankError ? t('rank.all') : t(`rank.${d.rank}` as StringKey);
   const roleName = d.position === 'all' ? t('results.perRole') : t(`pos.${d.position}.long` as StringKey);
 
