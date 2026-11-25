@@ -1,4 +1,5 @@
 import type { RecentGame } from './poolStats';
+import type { HistoryGame, Patch } from './v3';
 /**
  * Player profile from OpenDota, straight from the browser (CORS is open; the
  * limits are per viewer IP, so the site spends nothing). Four requests in
@@ -121,7 +122,7 @@ export function cachedProfile(id: number): PlayerProfile | null {
 }
 
 export function clearPlayerCache() {
-  try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem('lp.playerRecent'); } catch { /* ignore */ }
+  try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem('lp.playerRecent'); localStorage.removeItem('lp.patches'); } catch { /* ignore */ }
 }
 
 /**
@@ -187,4 +188,63 @@ export async function fetchRecent(id: number, opts: { fresh?: boolean; now?: num
     if (hit) return hit.games;
     throw e;
   }
+}
+
+/* ───────────── v3: patches, match history, teammates ───────────── */
+
+const PATCH_KEY = 'lp.patches';
+const PATCH_TTL_MS = 3 * 86_400_000;
+
+/** Patch names and start dates (OpenDota constants), cached for a few days. */
+export async function fetchPatches(now = Date.now()): Promise<Patch[]> {
+  let hit: { at: number; list: Patch[] } | null = null;
+  try { hit = JSON.parse(localStorage.getItem(PATCH_KEY) ?? 'null'); } catch { /* ignore */ }
+  if (hit?.list?.length && now - hit.at < PATCH_TTL_MS) return hit.list;
+  try {
+    const rows = await get<{ name: string; date: string }[]>('/constants/patch');
+    const list = (rows ?? []).map((r) => ({ name: r.name, start: Math.floor(Date.parse(r.date) / 1000) })).filter((p) => Number.isFinite(p.start));
+    try { localStorage.setItem(PATCH_KEY, JSON.stringify({ at: now, list })); } catch { /* ignore */ }
+    return list;
+  } catch (e) {
+    if (hit?.list?.length) return hit.list;
+    throw e;
+  }
+}
+
+export interface RawHistoryRow { match_id: number; player_slot: number; radiant_win: boolean; hero_id: number; start_time: number }
+
+export const normalizeHistory = (rows: RawHistoryRow[]): HistoryGame[] =>
+  (rows ?? []).map((r) => ({ heroId: r.hero_id, win: (r.player_slot < 128) === !!r.radiant_win, start: r.start_time }));
+
+const historyMem = new Map<string, HistoryGame[]>();
+
+/** Every game since `sinceSec` (hero, result, date only): kept in memory, it is too big for localStorage. */
+export async function fetchHistory(id: number, sinceSec: number, now = Date.now()): Promise<HistoryGame[]> {
+  const days = Math.max(1, Math.ceil((now / 1000 - sinceSec) / 86400));
+  const key = `${id}:${days}`;
+  const hit = historyMem.get(key);
+  if (hit) return hit;
+  const games = normalizeHistory(await get<RawHistoryRow[]>(`/players/${id}/matches?date=${days}&project=hero_id&project=start_time`));
+  historyMem.set(key, games);
+  return games;
+}
+
+export interface Peer { id: number; name: string; avatar: string | null; withGames: number; withWin: number; againstGames: number; againstWin: number }
+
+export interface RawPeer { account_id: number; personaname: string | null; avatarfull: string | null; with_games: number; with_win: number; against_games: number; against_win: number }
+
+export const normalizePeers = (rows: RawPeer[]): Peer[] =>
+  (rows ?? []).filter((r) => r.with_games + r.against_games > 0)
+    .map((r) => ({ id: r.account_id, name: r.personaname || `#${r.account_id}`, avatar: r.avatarfull || null, withGames: r.with_games, withWin: r.with_win, againstGames: r.against_games, againstWin: r.against_win }))
+    .sort((a, b) => b.withGames - a.withGames);
+
+const peersMem = new Map<number, Peer[]>();
+
+/** Everyone the player met in their games (OpenDota /peers), most games in one team first. */
+export async function fetchPeers(id: number): Promise<Peer[]> {
+  const hit = peersMem.get(id);
+  if (hit) return hit;
+  const list = normalizePeers(await get<RawPeer[]>(`/players/${id}/peers`));
+  peersMem.set(id, list);
+  return list;
 }

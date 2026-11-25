@@ -116,6 +116,29 @@ export const APP_CONFIG = {
     widePool: 20,
     // A last game older than this many days: the pool is marked as old.
     staleDays: 30,
+    // "Heroes worth learning": heroes with < maxGames games, meta win rate ≥
+    // metaMin % on the rank, similarity ≥ minSim (0..1) to one of the player's
+    // strongCount strongest heroes. score = similarity × (1 + metaWeight × min(meta − 50, metaCap)):
+    // similarity leads, the meta only reorders — a specialists' hero (Meepo at
+    // 58% because only Meepo players pick it) must not top the list.
+    // Similarity = weighted positions cosine, Dota role tags, threat tags, attribute/attack.
+    // With "My roles" set: share ≥ roleShare on one of them (positions.json).
+    learn: {
+      maxGames: 5,
+      metaMin: 50.5,
+      minSim: 0.55,
+      strongCount: 5,
+      metaWeight: 0.05,
+      metaCap: 4,
+      roleShare: 0.1,
+      count: 5,
+      weights: { pos: 0.5, roles: 0.25, tags: 0.15, kind: 0.1 },
+    },
+    // Dynamics: this many latest patches.
+    patchCount: 6,
+    // Comparing two pools: rows per list; frequent teammates offered.
+    compareCount: 5,
+    peerCount: 6,
   },
 
   ui: {

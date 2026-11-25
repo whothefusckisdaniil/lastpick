@@ -15,6 +15,7 @@ import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
 import { medalSrc } from '../Selectors';
 import { Avatar } from './PoolResults';
+import { CompareSection, LearnSection, PatchSection } from './ProfileV3';
 
 type Load =
   | { kind: 'idle' }
@@ -278,7 +279,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
       )}
 
       {profile && (
-        <div className="mt-4 grid gap-4">
+        <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4">
           {load.kind === 'ready' && load.stale && <div className="notice">{t('profile.stale', { date: date(profile.fetchedAt) })}</div>}
 
           <section className="panel p-4 sm:p-6">
@@ -369,7 +370,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
               <section className="panel p-4 sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.heroes')}</h3>
-                  <div className="seg seg-sm" role="tablist" aria-label={t('profile.heroes')}>
+                  <div className="seg seg-sm grid w-full grid-cols-2 sm:flex sm:w-auto" role="tablist" aria-label={t('profile.heroes')}>
                     {SORTS.map((k) => (
                       <button key={k} type="button" role="tab" aria-selected={sort === k} onClick={() => setSort(k)} className={`seg-btn ${sort === k ? 'is-active' : ''}`}>{t(`profile.sort.${k}` as StringKey)}</button>
                     ))}
@@ -379,12 +380,17 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                 {!meta ? <div className="mt-4"><DiamondLoader label={t('profile.loading')} /></div> : sorted.length === 0 ? (
                   <p className="mt-3 text-[13px] text-muted">{t('profile.none')}</p>
                 ) : (
-                  <ul className="mt-3 grid gap-1.5">
+                  <ul className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-1.5">
                     {sorted.map((s) => <HeroRow key={s.heroId} s={s} hero={dataset?.heroById.get(s.heroId)} sort={sort} />)}
                   </ul>
                 )}
                 {meta && <p className="mt-3 text-[11px] leading-[14px] text-muted">{t('profile.meta', { rank: meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey) })} {t('profile.labelsNote')}</p>}
               </section>
+
+              {meta && dataset && stats.length > 0 && (
+                <LearnSection stats={stats} dataset={dataset} meta={meta.base} roles={isMe ? me.roles : []}
+                  rankLabel={meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey)} />
+              )}
 
               {width && width.heroes > 0 && (
                 <section className="panel p-4 sm:p-5">
@@ -393,6 +399,10 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   <p className="tnum mt-1 text-[13px] text-muted">{t('profile.width.text', { n: width.heroes, share: Math.round(width.top3Share * 100) })}</p>
                 </section>
               )}
+
+              {dataset && <PatchSection profile={profile} heroById={dataset.heroById} />}
+
+              {dataset && meta && <CompareSection profile={profile} dataset={dataset} meta={meta.base} />}
 
               <section className="panel p-4 sm:p-5">
                 <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.share.title')}</h3>

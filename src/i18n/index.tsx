@@ -86,7 +86,7 @@ function makeI18n(lang: Lang, setLang: (l: Lang) => void): I18n {
   };
 }
 
-type PluralKey = 'pick' | 'game' | 'match' | 'hour' | 'day';
+type PluralKey = 'pick' | 'game' | 'match' | 'hour' | 'day' | 'hero';
 
 const EN_FORMS: Record<PluralKey, [string, string]> = {
   pick: ['pick', 'picks'],
@@ -94,11 +94,13 @@ const EN_FORMS: Record<PluralKey, [string, string]> = {
   match: ['match', 'matches'],
   hour: ['hour', 'hours'],
   day: ['day', 'days'],
+  hero: ['hero', 'heroes'],
 };
 
 const RU_FORMS: Record<PluralKey, [string, string, string]> = {
   pick: ['пик', 'пика', 'пиков'],
   game: ['игра', 'игры', 'игр'],
+  hero: ['герой', 'героя', 'героев'],
   match: ['матч', 'матча', 'матчей'],
   hour: ['час', 'часа', 'часов'],
   day: ['день', 'дня', 'дней'],
