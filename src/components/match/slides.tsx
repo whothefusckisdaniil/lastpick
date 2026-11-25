@@ -6,7 +6,7 @@ import type { WinChance } from '../../scoring/winChance';
 import { hasRealDraft, type MatchModel, type MatchObjective, type MatchPlayer } from '../../match/model';
 import type { Swing, Verdict } from '../../match/analyze/story';
 import type { Award, Pos } from '../../match/analyze/players';
-import type { BuildReview, BuildRow } from '../../match/analyze/builds';
+import type { PurchaseReview, PurchaseRow } from '../../match/analyze/builds';
 import { fightScore, type FightSummary } from '../../match/analyze/fights';
 import type { Laning, LaneResult } from '../../match/analyze/lanes';
 import type { DeathCost, DeathsSummary } from '../../match/analyze/deaths';
@@ -29,7 +29,7 @@ export interface DraftInfo {
   thenPatch: string | null;
 }
 
-export interface BuildInfo { review: BuildReview; pos: Pos; itemName: (key: string) => string }
+export interface BuildInfo { review: PurchaseReview; pos: Pos | null; itemName: (key: string) => string }
 
 export interface RecapCtx {
   m: MatchModel;
@@ -534,12 +534,14 @@ export function economySlide(c: RecapCtx): Slide {
 
 /* ---------- 7. items ---------- */
 
-function verdictText(c: RecapCtx, r: BuildRow): string {
+/** Short label of a doubtful purchase ("Not needed") and why. */
+function flagText(c: RecapCtx, r: PurchaseRow, heroLabel: string): { tag: string; why: string } | null {
   const { t } = c.i18n;
-  if (r.verdict === 'late') return t('bs.late', { n: (r.bought ?? 0) - r.typical });
-  return t(`bs.${r.verdict}` as StringKey);
+  if (r.flag === 'notNeeded') return { tag: t('bs.flag.notNeeded'), why: t(`bs.why.${r.why}` as StringKey) };
+  if (r.flag === 'wasted') return { tag: t('bs.flag.wasted'), why: t('bs.why.wasted', { n: r.beforeEnd ?? 0 }) };
+  if (r.flag === 'rare') return { tag: t('bs.flag.rare'), why: t('bs.why.rare', { hero: heroLabel }) };
+  return null;
 }
-const verdictTone = (r: BuildRow) => (r.verdict === 'late' || r.verdict === 'missing' ? 'text-neg' : r.verdict === 'early' ? 'text-pos' : r.verdict === 'onTime' ? 'text-ink' : 'text-muted');
 
 function PlayerPicker({ c, value, onChange, label }: { c: RecapCtx; value: number; onChange: (slot: number) => void; label: string }) {
   return (
@@ -573,43 +575,37 @@ function BuildBody({ c }: { c: RecapCtx }) {
       </div>
       {c.build.status === 'loading' && <div className="mt-5"><DiamondLoader label={t('bs.loading')} /></div>}
       {(c.build.status === 'none' || c.build.status === 'error') && <p className="notice mt-4">{t('bs.none')}</p>}
-      {c.build.status === 'ready' && (
-        <>
-          <ul className="mt-3 grid gap-1.5">
-            {c.build.value.review.rows.map((r) => (
-              <li key={r.key} className="panel-2 flex items-center gap-2.5 px-2 py-1.5">
-                <span className={`h-[30px] w-[41px] flex-none overflow-hidden rounded ${r.verdict === 'missing' ? 'opacity-40 grayscale' : ''}`}>
-                  <img src={itemImg(r.key)} alt="" width={41} height={30} loading="lazy" className="h-full w-full object-cover" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-semibold text-ink">
-                    {c.build.status === 'ready' ? c.build.value.itemName(r.key) : r.key}
-                    {r.kind === 'draft' && <span className="ml-1.5 text-[11px] font-semibold text-accent">{t('bs.counter')}</span>}
-                  </div>
-                  <div className="tnum text-[11px] leading-[14px] text-muted">
-                    {t('bs.usual', { n: r.typical })}{r.bought != null ? ` · ${t('bs.at', { n: r.bought })}` : ''}
-                  </div>
-                </div>
-                <span className={`flex-none text-[12px] font-semibold ${verdictTone(r)}`}>{verdictText(c, r)}</span>
-              </li>
-            ))}
-          </ul>
-          {c.build.value.review.extra.length > 0 && (
-            <div className="mt-3">
-              <div className="label mb-1.5">{t('bs.extra')}</div>
-              <ul className="flex flex-wrap gap-1.5">
-                {c.build.value.review.extra.map((k) => (
-                  <li key={k} title={c.build.status === 'ready' ? c.build.value.itemName(k) : k} className="h-[30px] w-[41px] overflow-hidden rounded bg-surface-2">
-                    <img src={itemImg(k)} alt={c.build.status === 'ready' ? c.build.value.itemName(k) : k} width={41} height={30} loading="lazy" className="h-full w-full object-cover" />
+      {c.build.status === 'ready' && (() => {
+        const { review, itemName } = c.build.value;
+        return (
+          <>
+            <p className={`mt-3 text-[14px] font-semibold ${review.mistakes ? 'text-neg' : 'text-pos'}`}>
+              {review.mistakes ? t('bs.mistakes', { n: review.mistakes }) : t('bs.clean')}
+            </p>
+            {review.rows.length === 0 && <p className="mt-2 text-[13px] text-muted">{t('bs.empty')}</p>}
+            <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
+              {review.rows.map((r) => {
+                const f = flagText(c, r, heroName(c, p));
+                return (
+                  <li key={r.key} className={`panel-2 flex items-center gap-2.5 px-2 py-1.5 ${f ? '!border-neg/50 sm:col-span-2' : ''}`}>
+                    <span className="h-[30px] w-[41px] flex-none overflow-hidden rounded">
+                      <img src={itemImg(r.key)} alt="" width={41} height={30} loading="lazy" className="h-full w-full object-cover" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-semibold text-ink">{itemName(r.key)}</div>
+                      {f && <div className="text-[11px] leading-[14px] text-muted">{f.why}</div>}
+                    </div>
+                    {f && <span className="flex-none rounded-md bg-neg/15 px-1.5 py-0.5 text-[11px] font-semibold text-neg">{f.tag}</span>}
+                    {r.minute != null && <span className="tnum flex-none whitespace-nowrap text-right text-[12px] text-muted">{t('bs.at', { n: r.minute })}</span>}
                   </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {!c.build.value.review.timed && <Note>{t('bs.noTimes')}</Note>}
-          <Note>{t('bs.note')}</Note>
-        </>
-      )}
+                );
+              })}
+            </ul>
+            {!review.timed && <Note>{t('bs.noTimes')}</Note>}
+            <Note>{t('bs.note')}</Note>
+          </>
+        );
+      })()}
     </>
   );
 }
@@ -622,13 +618,16 @@ export function buildSlide(c: RecapCtx): Slide {
     title: t('slide.build'),
     node: <div><Kicker>{t('slide.build')}</Kicker><BuildBody c={c} /></div>,
     card: () => {
-      const rows: RecapCardRow[] = c.build.status === 'ready' ? c.build.value.review.rows.slice(0, 7).map((r) => ({
-        title: c.build.status === 'ready' ? c.build.value.itemName(r.key) : r.key,
-        sub: `${t('bs.usual', { n: r.typical })}${r.bought != null ? ` · ${t('bs.at', { n: r.bought })}` : ''}`,
-        value: verdictText(c, r),
-        tone: r.verdict === 'late' || r.verdict === 'missing' ? 'neg' : r.verdict === 'early' ? 'pos' : 'muted',
-      })) : [];
-      return { kicker: t('slide.build'), title: t('bs.title', { hero: heroName(c, p) }), subtitle: t('bs.note'), rows: [{ hero: c.heroOf(p), title: heroName(c, p), sub: c.pos.get(p.slot) ? t('bs.pos', { n: c.pos.get(p.slot)! }) : undefined }, ...rows], ...c.card };
+      const review = c.build.status === 'ready' ? c.build.value.review : null;
+      const name = (k: string) => (c.build.status === 'ready' ? c.build.value.itemName(k) : k);
+      // mistakes first, then the rest in purchase order
+      const list = review ? [...review.rows.filter((r) => r.flag), ...review.rows.filter((r) => !r.flag)].slice(0, 7) : [];
+      const rows: RecapCardRow[] = list.map((r) => {
+        const f = flagText(c, r, heroName(c, p));
+        return { title: name(r.key), sub: f ? f.why : undefined, value: f ? f.tag : r.minute != null ? t('bs.at', { n: r.minute }) : '', tone: f ? 'neg' : 'muted' };
+      });
+      const subtitle = review ? (review.mistakes ? t('bs.mistakes', { n: review.mistakes }) : t('bs.clean')) : undefined;
+      return { kicker: t('slide.build'), title: t('bs.title', { hero: heroName(c, p) }), subtitle, rows: [{ hero: c.heroOf(p), title: heroName(c, p), sub: c.pos.get(p.slot) ? t('bs.pos', { n: c.pos.get(p.slot)! }) : undefined }, ...rows], ...c.card };
     },
   };
 }

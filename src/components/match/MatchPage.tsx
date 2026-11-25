@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../../i18n';
 import type { Hero, MatchupRow } from '../../types';
 import {
-  chooseBuild, loadBracketTables, loadBuildIndex, loadDataset, loadHeroBuild, loadSynergy, loadSynergyByBracket,
+  loadBracketTables, loadBuildIndex, loadDataset, loadHeroBuild, loadSynergy, loadSynergyByBracket,
   type BuildIndex, type Dataset,
 } from '../../data/dataset';
 import { buildDraftSearch } from '../../data/draftUrl';
@@ -12,7 +12,7 @@ import { parseMatchInput } from '../../match/normalize';
 import { hasRealDraft, type MatchModel } from '../../match/model';
 import { swings as findSwings, verdict as findVerdict } from '../../match/analyze/story';
 import { awards as findAwards, economy as findEconomy, lobbyBracket, positions as findPositions } from '../../match/analyze/players';
-import { reviewBuild } from '../../match/analyze/builds';
+import { reviewPurchases } from '../../match/analyze/builds';
 import { fights as findFights } from '../../match/analyze/fights';
 import { laning as findLaning } from '../../match/analyze/lanes';
 import { deaths as findDeaths } from '../../match/analyze/deaths';
@@ -213,28 +213,23 @@ export default function MatchPage() {
     return () => { alive = false; };
   }, [model, dataset, patches]);
 
-  // the build review of one player
+  // what one player bought, and the doubtful purchases
   useEffect(() => {
     if (!model || !dataset || !analysis) return;
     const p = model.players[buildSlot];
-    const hero = dataset.heroById.get(p.heroId);
-    const pos = analysis.pos.bySlot.get(p.slot);
-    if (!hero || !pos) { setBuild({ status: 'none' }); return; }
+    const pos = analysis.pos.bySlot.get(p.slot) ?? null;
     let alive = true;
     setBuild({ status: 'loading' });
-    Promise.all([loadBuildIndex(), loadHeroBuild(p.heroId), loadItemIds()])
-      .then(([ix, hb, itemIds]: [BuildIndex | null, Awaited<ReturnType<typeof loadHeroBuild>>, Record<string, string> | null]) => {
+    Promise.all([loadBuildIndex(), loadHeroBuild(p.heroId).catch(() => null), loadItemIds()])
+      .then(([ix, hb, itemIds]: [BuildIndex | null, Awaited<ReturnType<typeof loadHeroBuild>> | null, Record<string, string> | null]) => {
         if (!alive) return;
-        const { build: b } = chooseBuild(hb?.positions[pos]);
-        if (!ix || !b) { setBuild({ status: 'none' }); return; }
-        const byKey = new Map(Object.values(ix.items).map((v) => [v[0], v[1]]));
-        const keyOfId = (itemId: number) => itemIds?.[itemId] ?? ix.items[itemId]?.[0];
-        const heroes = (radiant: boolean, skip?: number) => model.players.filter((x) => x.radiant === radiant && x.slot !== skip).flatMap((x) => { const h = dataset.heroById.get(x.heroId); return h ? [h] : []; });
-        const review = reviewBuild({
-          player: p, hero, pos, build: b, itemOf: (itemId) => ix.items[itemId], keyOfId,
-          enemies: heroes(!p.radiant), allies: heroes(p.radiant, p.slot),
-          available: new Set(byKey.keys()),
-        });
+        if (!ix && !itemIds) { setBuild({ status: 'none' }); return; }
+        const builds = pos ? Object.values(hb?.positions[pos] ?? {}) : [];
+        const byKey = new Map(Object.values(ix?.items ?? {}).map((v) => [v[0], v[1]]));
+        const keyOfId = (itemId: number) => itemIds?.[itemId] ?? ix?.items[itemId]?.[0];
+        const enemies = model.players.filter((x) => x.radiant !== p.radiant).flatMap((x) => { const h = dataset.heroById.get(x.heroId); return h ? [h] : []; });
+        const components = new Map(Object.values(ix?.items ?? {}).map((v) => [v[0], v[2] ?? []]));
+        const review = reviewPurchases({ player: p, duration: model.duration, builds, itemOf: (itemId) => ix?.items[itemId], keyOfId, enemies, components });
         setBuild({ status: 'ready', value: { review, pos, itemName: (k) => byKey.get(k) ?? prettyItem(k) } });
       })
       .catch(() => alive && setBuild({ status: 'error' }));

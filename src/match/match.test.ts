@@ -13,7 +13,7 @@ import { normalizeMatch, parseMatchInput, type RawMatch } from './normalize';
 import { hasRealDraft, type MatchModel } from './model';
 import { STORY, swings, verdict } from './analyze/story';
 import { awards, economy, killShare, lobbyBracket, positions } from './analyze/players';
-import { reviewBuild } from './analyze/builds';
+import { reviewPurchases } from './analyze/builds';
 import { fetchMatch, MatchError, pollDelay, POLL_LIMIT_MS } from './api';
 import { fights, fightScore } from './analyze/fights';
 import { laning } from './analyze/lanes';
@@ -184,55 +184,83 @@ describe('players', () => {
   });
 });
 
-describe('build review', () => {
+describe('purchase review', () => {
   const ix = buildIndex as unknown as BuildIndex;
   const itemOf = (id: number) => ix.items[id];
   const keyOfId = (id: number) => (itemIds as Record<string, string>)[id];
-  const { bySlot } = positions(parsed);
+  const hero = (name: string) => heroes.find((h) => h.name === name)!;
+  const id = (k: string) => Number(Object.entries(ix.items).find(([, v]) => v[0] === k)![0]);
+  const p0 = parsed.players[0];
+  const components = new Map(Object.values(ix.items).map((v) => [v[0], v[2] ?? []]));
+  const build = (items: [string, number][]) => ({ m: 5000, low: false, start: [], boots: [], talents: [], skills: [], items: items.map(([k, pct]) => [id(k), pct, 20, 0.5]) as [number, number, number, number][] });
 
-  it('every ideal slot gets a verdict, purchase minutes from the log', () => {
-    let checked = 0;
-    for (const p of parsed.players) {
-      const hero = heroById.get(p.heroId)!;
-      const pos = bySlot.get(p.slot)!;
-      const hb = heroBuild(p.heroId);
-      if (!hb) continue;
-      const { build } = chooseBuild(hb.positions[pos]);
-      if (!build) continue;
-      const enemies = parsed.players.filter((x) => x.radiant !== p.radiant).map((x) => heroById.get(x.heroId)!);
-      const allies = parsed.players.filter((x) => x.radiant === p.radiant && x.slot !== p.slot).map((x) => heroById.get(x.heroId)!);
-      const r = reviewBuild({ player: p, hero, pos, build, itemOf, keyOfId, enemies, allies });
-      expect(r.timed).toBe(true);
-      for (const row of r.rows) {
-        if (row.verdict === 'missing') expect(row.bought).toBeNull();
-        else expect(row.bought).not.toBeNull();
-      }
-      checked++;
-    }
-    expect(checked).toBeGreaterThan(5);
+  it('lists big items in purchase order with the minute, skips consumables, components and repeats', () => {
+    const player = { ...p0, purchases: [
+      { key: 'tango', time: -60 }, { key: 'power_treads', time: 9 * 60 }, { key: 'recipe_black_king_bar', time: 17 * 60 },
+      { key: 'black_king_bar', time: 17 * 60 }, { key: 'ogre_axe', time: 15 * 60 }, { key: 'blink', time: 13 * 60 }, { key: 'black_king_bar', time: 40 * 60 },
+    ] };
+    const r = reviewPurchases({ player, duration: 40 * 60, builds: [], itemOf, keyOfId, enemies: [] });
+    expect(r.timed).toBe(true);
+    expect(r.rows.map((x) => [x.key, x.minute])).toEqual([['power_treads', 9], ['blink', 13], ['black_king_bar', 17]]);
+    expect(r.mistakes).toBe(0);
   });
 
-  it('late / early / on time against the usual minute', () => {
-    const p = parsed.players[0];
-    const hero = heroById.get(p.heroId)!;
-    const build = { m: 5000, low: false, start: [], boots: [], talents: [], skills: [], items: [] as [number, number, number, number][] };
-    const id = (k: string) => Number(Object.entries(ix.items).find(([, v]) => v[0] === k)![0]);
-    build.items = [[id('black_king_bar'), 0.8, 20, 0.5], [id('blink'), 0.7, 15, 0.5], [id('desolator'), 0.6, 18, 0.5], [id('satanic'), 0.5, 30, 0.5]];
-    const player = { ...p, items: [], backpack: [], purchases: [{ key: 'black_king_bar', time: 31 * 60 }, { key: 'blink', time: 14 * 60 }, { key: 'desolator', time: 9 * 60 }] };
-    const r = reviewBuild({ player, hero, pos: 1, build, itemOf, keyOfId, enemies: [], allies: [] });
-    const v = Object.fromEntries(r.rows.map((x) => [x.key, x.verdict]));
-    expect(v).toMatchObject({ black_king_bar: 'late', blink: 'onTime', desolator: 'early', satanic: 'missing' });
+  it('a counter item with no such threat is "not needed"; with it, fine', () => {
+    const player = { ...p0, purchases: [{ key: 'monkey_king_bar', time: 25 * 60 }] };
+    const noEvasion = ['Pudge', 'Lion', 'Axe', 'Zeus', 'Sniper'].map(hero);
+    const withPA = ['Pudge', 'Lion', 'Axe', 'Zeus', 'Phantom Assassin'].map(hero);
+    const b = build([['black_king_bar', 0.6]]);
+    const r1 = reviewPurchases({ player, duration: 45 * 60, builds: [b], itemOf, keyOfId, enemies: noEvasion });
+    expect(r1.rows[0]).toMatchObject({ flag: 'notNeeded', why: 'evasion' });
+    const r2 = reviewPurchases({ player, duration: 45 * 60, builds: [b], itemOf, keyOfId, enemies: withPA });
+    expect(r2.rows[0].flag).toBeNull();
+    // a hero that buys it often is never told it was not needed
+    const r3 = reviewPurchases({ player, duration: 45 * 60, builds: [build([['monkey_king_bar', 0.3]])], itemOf, keyOfId, enemies: noEvasion });
+    expect(r3.rows[0].flag).toBeNull();
   });
 
-  it('without a purchase log the final inventory counts', () => {
+  it('bought in the last minutes = useless; an item the hero almost never buys = unusual', () => {
+    const player = { ...p0, purchases: [{ key: 'black_king_bar', time: 18 * 60 }, { key: 'satanic', time: 38 * 60 }, { key: 'radiance', time: 20 * 60 }, { key: 'kaya', time: 39 * 60 }] };
+    const b = build([['black_king_bar', 0.6], ['satanic', 0.3], ['desolator', 0.05]]);
+    const r = reviewPurchases({ player, duration: 40 * 60, builds: [b], itemOf, keyOfId, enemies: [], components });
+    const by = Object.fromEntries(r.rows.map((x) => [x.key, x]));
+    expect(by.black_king_bar.flag).toBeNull();
+    expect(by.satanic).toMatchObject({ flag: 'wasted', beforeEnd: 2 });
+    expect(by.radiance.flag).toBe('rare');
+    // a component bought at the end is gold carried forward, not a mistake
+    expect(by.kaya.flag).toBeNull();
+    expect(r.mistakes).toBe(2);
+    // an item the statistics do not know (new this patch) is never "unusual"
+    const fresh = reviewPurchases({ player: { ...p0, purchases: [{ key: 'brand_new_item', time: 20 * 60 }] }, duration: 40 * 60, builds: [b], itemOf, keyOfId, enemies: [], components });
+    expect(fresh.rows[0].flag).toBeNull();
+    // a build cut at a high share cannot tell what is rare
+    const cut = reviewPurchases({ player, duration: 40 * 60, builds: [build([['black_king_bar', 0.6], ['satanic', 0.4]])], itemOf, keyOfId, enemies: [], components });
+    expect(cut.rows.find((x) => x.key === 'radiance')!.flag).toBeNull();
+    // another rank buying it in 5%+ of games: not unusual
+    const ranks = reviewPurchases({ player, duration: 40 * 60, builds: [b, { ...build([['radiance', 0.06]]), m: 800 }], itemOf, keyOfId, enemies: [], components });
+    expect(ranks.rows.find((x) => x.key === 'radiance')!.flag).toBeNull();
+  });
+
+  it('without a purchase log: the final inventory, no minutes', () => {
     const p = unparsed.players[0];
-    const hero = heroById.get(p.heroId)!;
-    const hb = heroBuild(p.heroId);
-    const pos = positions(unparsed).bySlot.get(p.slot)!;
-    const { build } = chooseBuild(hb.positions[pos] ?? Object.values(hb.positions)[0]);
-    const r = reviewBuild({ player: p, hero, pos, build: build!, itemOf, keyOfId, enemies: [], allies: [] });
+    const r = reviewPurchases({ player: p, duration: unparsed.duration, builds: [], itemOf, keyOfId, enemies: [] });
     expect(r.timed).toBe(false);
-    expect(r.rows.every((x) => x.verdict === 'have' || x.verdict === 'missing')).toBe(true);
+    expect(r.rows.length).toBeGreaterThan(0);
+    expect(r.rows.every((x) => x.minute == null && x.flag !== 'wasted')).toBe(true);
+  });
+
+  it('a component is hidden once the item it builds into is bought', () => {
+    const player = { ...p0, purchases: [{ key: 'kaya', time: 14 * 60 }, { key: 'sange', time: 18 * 60 }, { key: 'kaya_and_sange', time: 18 * 60 }, { key: 'soul_booster', time: 25 * 60 }] };
+    const r = reviewPurchases({ player, duration: 40 * 60, builds: [], itemOf, keyOfId, enemies: [], components });
+    expect(r.rows.map((x) => x.key)).toEqual(['kaya_and_sange', 'soul_booster']);
+  });
+
+  it('works on every player of a parsed match', () => {
+    for (const p of parsed.players) {
+      const enemies = parsed.players.filter((x) => x.radiant !== p.radiant).map((x) => heroById.get(x.heroId)!);
+      const r = reviewPurchases({ player: p, duration: parsed.duration, builds: [], itemOf, keyOfId, enemies });
+      expect(r.rows.every((x) => x.minute != null && x.minute <= Math.ceil(parsed.duration / 60))).toBe(true);
+    }
   });
 });
 
