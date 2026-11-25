@@ -122,7 +122,7 @@ export function cachedProfile(id: number): PlayerProfile | null {
 }
 
 export function clearPlayerCache() {
-  try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem('lp.playerRecent'); localStorage.removeItem('lp.patches'); } catch { /* ignore */ }
+  try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem('lp.playerRecent'); localStorage.removeItem('lp.patches'); localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
 }
 
 /**
@@ -216,18 +216,89 @@ export interface RawHistoryRow { match_id: number; player_slot: number; radiant_
 export const normalizeHistory = (rows: RawHistoryRow[]): HistoryGame[] =>
   (rows ?? []).map((r) => ({ heroId: r.hero_id, win: (r.player_slot < 128) === !!r.radiant_win, start: r.start_time }));
 
-const historyMem = new Map<string, HistoryGame[]>();
+/**
+ * Match history: one loader and one cache for everything built on it (the
+ * weekly review, dynamics by patch).
+ *  - memory: the widest window loaded per player this visit; a narrower
+ *    request inside it is answered from it, with no new request;
+ *  - localStorage: the last RECENT_DAYS days only (small even for an active
+ *    player), so a reload within the TTL costs nothing and an outage still
+ *    shows the last copy with its date.
+ */
+export const HISTORY_TTL_MS = 30 * 60 * 1000;
+const RECENT_DAYS = 14;
+const HISTORY_KEY = 'lp.playerHistory';
+const HISTORY_VERSION = 1;
 
-/** Every game since `sinceSec` (hero, result, date only): kept in memory, it is too big for localStorage. */
-export async function fetchHistory(id: number, sinceSec: number, now = Date.now()): Promise<HistoryGame[]> {
-  const days = Math.max(1, Math.ceil((now / 1000 - sinceSec) / 86400));
-  const key = `${id}:${days}`;
-  const hit = historyMem.get(key);
-  if (hit) return hit;
-  const games = normalizeHistory(await get<RawHistoryRow[]>(`/players/${id}/matches?date=${days}&project=hero_id&project=start_time`));
-  historyMem.set(key, games);
-  return games;
+export interface History {
+  games: HistoryGame[];
+  /** When it was loaded (ms). */
+  fetchedAt: number;
+  /** Loaded at least this far back (unix seconds). */
+  since: number;
+  /** An older copy because the service did not answer. */
+  stale: boolean;
 }
+
+type StoredHistory = { v: number; at: number; since: number; games: [number, 0 | 1, number][] };
+
+const historyMem = new Map<number, { games: HistoryGame[]; fetchedAt: number; since: number }>();
+
+function readStored(id: number): { games: HistoryGame[]; fetchedAt: number; since: number } | null {
+  try {
+    const all = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '{}') as Record<string, StoredHistory>;
+    const h = all[id];
+    if (!h || h.v !== HISTORY_VERSION) return null;
+    return { fetchedAt: h.at, since: h.since, games: h.games.map(([heroId, w, start]) => ({ heroId, win: w === 1, start })) };
+  } catch { return null; }
+}
+
+function store(id: number, games: HistoryGame[], fetchedAt: number, nowSec: number) {
+  try {
+    const since = Math.floor(nowSec - RECENT_DAYS * 86400);
+    const all = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '{}') as Record<string, StoredHistory>;
+    all[id] = { v: HISTORY_VERSION, at: fetchedAt, since, games: games.filter((g) => g.start >= since).map((g) => [g.heroId, g.win ? 1 : 0, g.start]) };
+    const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, CACHE_MAX);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(Object.fromEntries(keep)));
+  } catch { /* storage full or blocked */ }
+}
+
+/** Every game since `sinceSec` (hero, result, date), from the cache while fresh unless `fresh`. */
+export async function loadHistory(id: number, sinceSec: number, opts: { fresh?: boolean; now?: number } = {}): Promise<History> {
+  const now = opts.now ?? Date.now();
+  const nowSec = now / 1000;
+  const covers = (h: { since: number; fetchedAt: number } | null | undefined) => !!h && h.since <= sinceSec + 60;
+  const fresh = (h: { fetchedAt: number }) => now - h.fetchedAt < HISTORY_TTL_MS;
+  const pick = (h: { games: HistoryGame[]; fetchedAt: number; since: number }, stale: boolean): History =>
+    ({ games: h.games.filter((g) => g.start >= sinceSec), fetchedAt: h.fetchedAt, since: h.since, stale });
+
+  const mem = historyMem.get(id);
+  if (!opts.fresh && mem && covers(mem) && fresh(mem)) return pick(mem, false);
+  const saved = readStored(id);
+  if (!opts.fresh && saved && covers(saved) && fresh(saved)) { historyMem.set(id, saved); return pick(saved, false); }
+
+  const days = Math.max(1, Math.ceil((nowSec - sinceSec) / 86400));
+  try {
+    const games = normalizeHistory(await get<RawHistoryRow[]>(`/players/${id}/matches?date=${days}&project=hero_id&project=start_time`));
+    const entry = { games, fetchedAt: now, since: Math.floor(nowSec - days * 86400) };
+    // keep the widest fresh window in memory
+    if (!mem || !fresh(mem) || entry.since <= mem.since || opts.fresh) historyMem.set(id, entry);
+    store(id, games, now, nowSec);
+    return pick(entry, false);
+  } catch (e) {
+    const fallback = [mem, saved].filter((h): h is NonNullable<typeof h> => covers(h)).sort((a, b) => b.fetchedAt - a.fetchedAt)[0];
+    if (fallback && !(e instanceof PlayerError && e.kind === 'notFound')) return pick(fallback, true);
+    throw e;
+  }
+}
+
+/** The games since `sinceSec` (dynamics by patch). */
+export async function fetchHistory(id: number, sinceSec: number, now = Date.now()): Promise<HistoryGame[]> {
+  return (await loadHistory(id, sinceSec, { now })).games;
+}
+
+/** Test hook. */
+export function clearHistoryMemory() { historyMem.clear(); }
 
 export interface Peer { id: number; name: string; avatar: string | null; withGames: number; withWin: number; againstGames: number; againstWin: number }
 

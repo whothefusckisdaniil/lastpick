@@ -4,7 +4,7 @@ import type { StringKey } from '../../i18n/strings';
 import type { Hero } from '../../types';
 import { loadBracketTables, loadDataset, type Dataset } from '../../data/dataset';
 import { parsePlayerInput } from '../../player/parseId';
-import { fetchProfile, fetchRecent, PlayerError, searchPlayers, type PlayerErrorKind, type PlayerProfile, type SearchHit } from '../../player/api';
+import { loadHistory, fetchProfile, fetchRecent, PlayerError, searchPlayers, type PlayerErrorKind, type PlayerProfile, type SearchHit } from '../../player/api';
 import { rankInfo } from '../../player/rankBracket';
 import { daysSince, form, heroLabels, heroStats, overallWinrate, poolOf, poolWidth, sortHeroes, type HeroLabel, type HeroSort, type HeroStat, type RecentGame } from '../../player/poolStats';
 import { setMe, setPoolOn, setRoles, useMe, type Role } from '../../player/usePlayer';
@@ -16,6 +16,8 @@ import { DiamondLoader } from '../Brand';
 import { medalSrc } from '../Selectors';
 import { Avatar } from './PoolResults';
 import { CompareSection, LearnSection, PatchSection } from './ProfileV3';
+import { WeeklyReviewCard, type WeeklyState } from './WeeklyReviewCard';
+import { weeklyReview } from '../../player/weeklyReview';
 import { StatTile, Tabs } from '../ui';
 
 import { trackOnce, trackEvent } from '../../analytics';
@@ -146,6 +148,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [meta, setMeta] = useState<{ base: Map<number, number>; rank: string } | null>(null);
   const [recent, setRecent] = useState<{ kind: 'loading' } | { kind: 'ready'; games: RecentGame[] } | { kind: 'error' } | null>(null);
+  const [weekly, setWeekly] = useState<WeeklyState | null>(null);
   const [hideName, setHideName] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [share, setShare] = useState<'idle' | 'making' | 'failed' | 'copied' | 'warnMe' | 'copiedMe'>('idle');
@@ -182,6 +185,19 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     fetchRecent(profile.id, { fresh: nonce > 0 })
       .then((games) => alive && setRecent({ kind: 'ready', games }))
       .catch(() => alive && setRecent({ kind: 'error' }));
+    return () => { alive = false; };
+  }, [profile, nonce]);
+
+  // weekly review: two weeks of history (one request, cached; shared with the patch dynamics)
+  useEffect(() => {
+    if (!profile || profile.hidden) { setWeekly(null); return; }
+    let alive = true;
+    const now = Date.now();
+    const days = APP_CONFIG.player.weekly.days;
+    setWeekly({ kind: 'loading' });
+    loadHistory(profile.id, now / 1000 - 2 * days * 86400, { fresh: nonce > 0, now })
+      .then((h) => alive && setWeekly({ kind: 'ready', review: weeklyReview(h.games, now), stale: h.stale, fetchedAt: h.fetchedAt }))
+      .catch(() => alive && setWeekly({ kind: 'error' }));
     return () => { alive = false; };
   }, [profile, nonce]);
 
@@ -382,6 +398,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
             <section className="panel p-4 sm:p-6">
               <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.hidden.title')}</h3>
               <p className="mt-2 text-[14px] leading-5 text-muted">{t('profile.hidden.text')}</p>
+              <p className="mt-2 text-[13px] leading-[18px] text-muted">{t('weekly.hidden')}</p>
               <a href={`https://www.opendota.com/players/${profile.id}`} target="_blank" rel="noopener" className="btn btn-ghost btn-sm mt-3">opendota.com/players/{profile.id} ↗</a>
             </section>
           ) : (
@@ -392,6 +409,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   <>
               {pool?.lowData && <div className="notice">{t('profile.lowData', { n: profile.win + profile.lose })}</div>}
               {days != null && days > APP_CONFIG.player.staleDays && <div className="notice">{t('profile.oldPool', { n: days })}</div>}
+                    {weekly && <WeeklyReviewCard state={weekly} isMe={isMe} heroById={dataset?.heroById} />}
                     <Overview profile={profile} stats={stats} width={width} recent={recent?.kind === 'ready' ? recent.games : null} heroById={dataset?.heroById} onTab={setTab} />
               {isMe && (
                 <section className="panel flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">

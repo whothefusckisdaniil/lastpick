@@ -139,6 +139,10 @@ export const APP_CONFIG = {
     // Comparing two pools: rows per list; frequent teammates offered.
     compareCount: 5,
     peerCount: 6,
+    // Weekly review: the last `days` days against the `days` before them, by
+    // match start time. Below minMatches in a week the numbers are shown but
+    // no conclusion is drawn; the win-rate change needs minMatches in both.
+    weekly: { days: 7, minMatches: 5 },
   },
 
   ui: {
