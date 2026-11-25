@@ -23,6 +23,9 @@ import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
 import { RecapPlayer } from './RecapPlayer';
 import { MyMatches } from './MyMatches';
+import { MatchReviewCard, type ReviewState } from './MatchReviewCard';
+import { reviewMatch } from '../../match/review';
+import { loadHeroGames, type HeroGame } from '../../player/api';
 import { trackOnce } from '../../analytics';
 import { useSlides, type BuildInfo, type DraftInfo, type Loadable, type RecapCtx } from './slides';
 
@@ -160,6 +163,33 @@ export default function MatchPage() {
       fights: findFights(model), laning: findLaning(model), deaths: findDeaths(model), wards: wardSummary(model),
     };
   }, [model]);
+
+  // personal match review: the chosen player's own previous games on this hero
+  // (one request per player + hero, cached; none for a private profile)
+  const mePlayer = model && me != null ? model.players[me] : null;
+  const reviewKey = mePlayer?.accountId != null ? `${mePlayer.accountId}:${mePlayer.heroId}` : null;
+  const [heroGames, setHeroGames] = useState<{ key: string; games: HeroGame[] | null } | null>(null);
+  useEffect(() => {
+    if (!reviewKey || !mePlayer?.accountId) return;
+    let alive = true;
+    loadHeroGames(mePlayer.accountId, mePlayer.heroId)
+      .then((games) => alive && setHeroGames({ key: reviewKey, games }))
+      .catch(() => alive && setHeroGames({ key: reviewKey, games: null }));
+    return () => { alive = false; };
+  }, [reviewKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reviewState = useMemo<ReviewState | null>(() => {
+    if (!model || !mePlayer || !analysis) return null;
+    if (reviewKey && heroGames?.key !== reviewKey) return { kind: 'loading' };
+    return {
+      kind: 'ready',
+      review: reviewMatch({
+        player: mePlayer,
+        match: { id: model.id, start: model.startTime, duration: model.duration, radiantWin: model.radiantWin },
+        position: analysis.pos.bySlot.get(mePlayer.slot) ?? null,
+        history: reviewKey ? heroGames?.games ?? null : null,
+      }),
+    };
+  }, [model, mePlayer, analysis, reviewKey, heroGames]);
 
   // STRATZ norms: the lobby's rank, all ranks for a hero / position it lacks
   const [normFiles, setNormFiles] = useState<{ lobby: NormFile | null; all: NormFile | null; rank: string } | null | undefined>(undefined);
@@ -407,6 +437,10 @@ export default function MatchPage() {
               })}
             </div>
           </div>
+
+          {reviewState && mePlayer && (
+            <MatchReviewCard state={reviewState} hero={heroById?.get(mePlayer.heroId)} playerName={mePlayer.name} />
+          )}
 
           <RecapPlayer slides={slides} matchId={model.id} shareUrl={shareUrl} />
         </div>

@@ -290,6 +290,18 @@ body {
   .my-match:hover { border-color: var(--color-line-2); transform: translateY(-2px); }
   .my-match.is-on { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent), 0 10px 24px -14px rgba(255, 180, 58, 0.6); }
 
+  /* match review blocks: a tinted edge says which kind of note it is */
+  .review-block {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--color-line);
+    background: var(--color-surface-2);
+    border-left-width: 3px;
+  }
+  .review-good { border-left-color: var(--color-pos); }
+  .review-improve { border-left-color: var(--color-neg); }
+  .review-focus { border-left-color: var(--color-accent); }
+
   /* a labelled number */
   .stat-tile {
     height: 100%;

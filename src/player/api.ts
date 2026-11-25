@@ -122,7 +122,7 @@ export function cachedProfile(id: number): PlayerProfile | null {
 }
 
 export function clearPlayerCache() {
-  try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem('lp.playerRecent'); localStorage.removeItem('lp.patches'); localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem('lp.playerRecent'); localStorage.removeItem('lp.patches'); localStorage.removeItem(HISTORY_KEY); localStorage.removeItem('lp.heroGames'); } catch { /* ignore */ }
 }
 
 /**
@@ -319,3 +319,98 @@ export async function fetchPeers(id: number): Promise<Peer[]> {
   peersMem.set(id, list);
   return list;
 }
+
+/* ───────────── a player's own games on one hero (match review baseline) ───────────── */
+
+export interface HeroGame {
+  matchId: number;
+  /** Unix seconds. */
+  start: number;
+  /** Seconds. */
+  duration: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  gpm: number;
+  xpm: number;
+  lastHits: number;
+  heroDamage: number;
+  towerDamage: number;
+  heroHealing: number;
+  /** 1 safe, 2 mid, 3 off, 4 jungle; parsed matches only. */
+  laneRole: number | null;
+  leaver: boolean;
+}
+
+export interface RawHeroGameRow {
+  match_id: number; start_time: number; duration: number; kills: number; deaths: number; assists: number;
+  gold_per_min: number; xp_per_min: number; last_hits: number; hero_damage: number | null; tower_damage: number | null;
+  hero_healing: number | null; lane_role: number | null; leaver_status: number | null;
+}
+
+export const HERO_GAMES_LIMIT = 100;
+export const HERO_GAMES_TTL_MS = 6 * 3600 * 1000;
+const HERO_GAMES_KEY = 'lp.heroGames';
+const HERO_GAMES_FIELDS = ['start_time', 'duration', 'kills', 'deaths', 'assists', 'gold_per_min', 'xp_per_min', 'last_hits', 'hero_damage', 'tower_damage', 'hero_healing', 'lane_role', 'leaver_status'];
+
+export const normalizeHeroGames = (rows: RawHeroGameRow[]): HeroGame[] =>
+  (rows ?? []).map((r) => ({
+    matchId: r.match_id, start: r.start_time, duration: r.duration ?? 0,
+    kills: r.kills ?? 0, deaths: r.deaths ?? 0, assists: r.assists ?? 0,
+    gpm: r.gold_per_min ?? 0, xpm: r.xp_per_min ?? 0, lastHits: r.last_hits ?? 0,
+    heroDamage: r.hero_damage ?? 0, towerDamage: r.tower_damage ?? 0, heroHealing: r.hero_healing ?? 0,
+    laneRole: r.lane_role ?? null, leaver: (r.leaver_status ?? 0) > 1,
+  }));
+
+const heroGamesMem = new Map<string, { games: HeroGame[]; at: number }>();
+const heroGamesInflight = new Map<string, Promise<HeroGame[]>>();
+
+/**
+ * The player's last 100 games on a hero, one request (cached in memory and
+ * localStorage; concurrent calls share one request). Compact: ~30 KB raw,
+ * stored as arrays.
+ */
+export async function loadHeroGames(accountId: number, heroId: number, opts: { now?: number } = {}): Promise<HeroGame[]> {
+  const now = opts.now ?? Date.now();
+  const key = `${accountId}:${heroId}`;
+  const mem = heroGamesMem.get(key);
+  if (mem && now - mem.at < HERO_GAMES_TTL_MS) return mem.games;
+  let stored: Record<string, { at: number; rows: (number | null)[][] }> = {};
+  try { stored = JSON.parse(localStorage.getItem(HERO_GAMES_KEY) ?? '{}'); } catch { /* ignore */ }
+  const unpack = (rows: (number | null)[][]): HeroGame[] => rows.map(([matchId, start, duration, kills, deaths, assists, gpm, xpm, lastHits, heroDamage, towerDamage, heroHealing, laneRole, leaver]) => ({
+    matchId: matchId!, start: start!, duration: duration!, kills: kills!, deaths: deaths!, assists: assists!, gpm: gpm!, xpm: xpm!, lastHits: lastHits!,
+    heroDamage: heroDamage!, towerDamage: towerDamage!, heroHealing: heroHealing!, laneRole, leaver: leaver === 1,
+  }));
+  const hit = stored[key];
+  if (hit && now - hit.at < HERO_GAMES_TTL_MS) {
+    const games = unpack(hit.rows);
+    heroGamesMem.set(key, { games, at: hit.at });
+    return games;
+  }
+  const running = heroGamesInflight.get(key);
+  if (running) return running;
+  const task = (async () => {
+    try {
+      const qs = HERO_GAMES_FIELDS.map((f) => `project=${f}`).join('&');
+      const games = normalizeHeroGames(await get<RawHeroGameRow[]>(`/players/${accountId}/matches?hero_id=${heroId}&limit=${HERO_GAMES_LIMIT}&${qs}`));
+      heroGamesMem.set(key, { games, at: now });
+      try {
+        stored[key] = { at: now, rows: games.map((g) => [g.matchId, g.start, g.duration, g.kills, g.deaths, g.assists, g.gpm, g.xpm, g.lastHits, g.heroDamage, g.towerDamage, g.heroHealing, g.laneRole, g.leaver ? 1 : 0]) };
+        const keep = Object.entries(stored).sort((a, b) => b[1].at - a[1].at).slice(0, CACHE_MAX);
+        localStorage.setItem(HERO_GAMES_KEY, JSON.stringify(Object.fromEntries(keep)));
+      } catch { /* storage full or blocked */ }
+      return games;
+    } catch (e) {
+      // an outage: the last copy, however old
+      if (hit) return unpack(hit.rows);
+      throw e;
+    } finally {
+      heroGamesInflight.delete(key);
+    }
+  })();
+  heroGamesInflight.set(key, task);
+  return task;
+}
+
+/** Test hook. */
+export function clearHeroGamesMemory() { heroGamesMem.clear(); heroGamesInflight.clear(); }

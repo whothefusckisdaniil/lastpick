@@ -145,6 +145,19 @@ export const APP_CONFIG = {
     weekly: { days: 7, minMatches: 5 },
   },
 
+  // Match review: one game against the player's own previous games on the
+  // same hero (same lane when there are enough parsed ones). A metric is
+  // "went well" when this game beats ≥ goodShare of those games, "to improve"
+  // when it beats ≤ badShare. Fewer than minGames → plain stats, no claims.
+  review: {
+    minGames: 10,
+    minDurationSec: 15 * 60,
+    goodShare: 0.75,
+    badShare: 0.25,
+    // tower damage / healing per minute: judged only when the player's usual is at least this
+    minSideRate: 30,
+  },
+
   ui: {
     maxEnemies: 5,
     // you are the 5th player
