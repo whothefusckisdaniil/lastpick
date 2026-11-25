@@ -16,6 +16,7 @@ import { DiamondLoader } from '../Brand';
 import { medalSrc } from '../Selectors';
 import { Avatar } from './PoolResults';
 import { CompareSection, LearnSection, PatchSection } from './ProfileV3';
+import { StatTile, Tabs } from '../ui';
 
 type Load =
   | { kind: 'idle' }
@@ -26,6 +27,11 @@ type Load =
 type Search = { kind: 'idle' } | { kind: 'loading'; q: string } | { kind: 'ready'; q: string; hits: SearchHit[] } | { kind: 'error'; error: PlayerErrorKind };
 
 const SORTS: HeroSort[] = ['games', 'strong', 'recent', 'rising'];
+
+type Tab = 'overview' | 'heroes' | 'patches' | 'friend' | 'card';
+const TABS: Tab[] = ['overview', 'heroes', 'patches', 'friend', 'card'];
+const TAB_KEY = 'lp.profileTab';
+const savedTab = (): Tab => { try { const v = localStorage.getItem(TAB_KEY) as Tab; return TABS.includes(v) ? v : 'overview'; } catch { return 'overview'; } };
 
 const urlPlayer = (): number | null => {
   try { const v = new URLSearchParams(window.location.search).get('player'); return v && /^\d+$/.test(v) ? Number(v) : null; } catch { return null; }
@@ -39,14 +45,10 @@ const LABEL_TONE: Record<HeroLabel, string> = { comfort: 'badge-pos', gem: 'badg
 function FormStrip({ games, heroById }: { games: RecentGame[]; heroById: Map<number, Hero> | undefined }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const f = form(games);
   return (
     <>
-      <p className="tnum text-[13px] text-muted">
-        <span className="text-ink">{t('profile.form.text', { w: f.wins, l: f.losses, n: games.length })}</span>
-        {Math.abs(f.streak) >= 2 && <span className={f.streak > 0 ? 'text-pos' : 'text-neg'}> · {t(f.streak > 0 ? 'profile.form.streakWin' : 'profile.form.streakLoss', { n: Math.abs(f.streak) })}</span>}
-      </p>
-      <ol className="mt-2 flex flex-wrap gap-1" aria-label={t('profile.form.title')}>
+      <p className="text-[12px] leading-4 text-muted">{t('profile.form.hint')}</p>
+      <ol className="stagger mt-3 flex flex-wrap gap-1" aria-label={t('profile.form.matches')}>
         {games.map((g) => {
           const h = heroById?.get(g.heroId);
           const label = `${h ? i18n.heroName(h) : `#${g.heroId}`}: ${t(g.win ? 'profile.form.win' : 'profile.form.loss')} ${g.kills}/${g.deaths}/${g.assists}`;
@@ -60,6 +62,33 @@ function FormStrip({ games, heroById }: { games: RecentGame[]; heroById: Map<num
         })}
       </ol>
     </>
+  );
+}
+
+/** The first screen: four labelled numbers, each with what it is measured against. */
+function Overview({ profile, stats, width, recent, heroById, onTab }: {
+  profile: PlayerProfile; stats: HeroStat[]; width: ReturnType<typeof poolWidth> | null; recent: RecentGame[] | null;
+  heroById: Map<number, Hero> | undefined; onTab: (t: Tab) => void;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const wr = overallWinrate(profile);
+  const best = sortHeroes(stats, 'strong')[0];
+  const bestHero = best ? heroById?.get(best.heroId) : undefined;
+  const f = recent?.length ? form(recent) : null;
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+      <StatTile label={t('profile.tile.wr')} value={wr == null ? '—' : `${wr.toFixed(1)}%`} tone={wr == null ? 'ink' : wr >= 50 ? 'pos' : 'neg'}
+        sub={t('profile.tile.wrSub', { n: i18n.number(profile.win + profile.lose) })} />
+      <StatTile label={t('profile.tile.form')} value={f ? `${f.wins}–${f.losses}` : '—'} tone={!f ? 'ink' : f.wins >= f.losses ? 'pos' : 'neg'}
+        sub={<>{t('profile.tile.formSub')}{f && Math.abs(f.streak) >= 2 && <span className={f.streak > 0 ? 'text-pos' : 'text-neg'}> · {t(f.streak > 0 ? 'profile.form.streakWin' : 'profile.form.streakLoss', { n: Math.abs(f.streak) })}</span>}</>} />
+      <StatTile label={t('profile.tile.pool')} value={width ? t(`profile.width.${width.label}` as StringKey) : '—'}
+        sub={width ? t('profile.tile.poolSub', { n: width.heroes, share: Math.round(width.top3Share * 100) }) : undefined} />
+      <button type="button" onClick={() => onTab('heroes')} className="text-left transition-transform hover:-translate-y-0.5">
+        <StatTile label={t('profile.tile.best')} value={best ? (bestHero ? i18n.heroName(bestHero) : `#${best.heroId}`) : '—'} tone="accent"
+          sub={best ? <>{t('profile.tile.bestSub', { edge: `${best.edge > 0 ? '+' : best.edge < 0 ? '−' : ''}${Math.abs(best.edge).toFixed(1)}`, g: `${best.games} ${i18n.plural(best.games, 'game')}` })} <span className="text-accent">{t('profile.tile.more')}</span></> : undefined} />
+      </button>
+    </div>
   );
 }
 
@@ -107,11 +136,14 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   const [load, setLoad] = useState<Load>({ kind: 'idle' });
   const [search, setSearch] = useState<Search>({ kind: 'idle' });
   const [sort, setSort] = useState<HeroSort>('games');
+  const [tab, setTabState] = useState<Tab>(savedTab);
+  const setTab = (v: Tab) => { setTabState(v); try { localStorage.setItem(TAB_KEY, v); } catch { /* not remembered */ } };
   const [nonce, setNonce] = useState(0);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [meta, setMeta] = useState<{ base: Map<number, number>; rank: string } | null>(null);
   const [recent, setRecent] = useState<{ kind: 'loading' } | { kind: 'ready'; games: RecentGame[] } | { kind: 'error' } | null>(null);
   const [hideName, setHideName] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
   const [share, setShare] = useState<'idle' | 'making' | 'failed' | 'copied' | 'warnMe' | 'copiedMe'>('idle');
 
   useEffect(() => { loadDataset().then(setDataset).catch(() => setDataset(null)); }, []);
@@ -158,6 +190,19 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   const pool = useMemo(() => (profile && meta ? poolOf(profile, meta.base) : null), [profile, meta]);
   const width = profile ? poolWidth(profile) : null;
   const isMe = profile != null && me.id === profile.id;
+
+  // the card tab shows the post-size card as it will be saved
+  useEffect(() => {
+    if (tab !== 'card' || !profile || profile.hidden || !meta) return;
+    let alive = true;
+    let url: string | null = null;
+    const id = window.setTimeout(() => {
+      renderRecapCard('post', card())
+        .then((blob) => { if (alive) { url = URL.createObjectURL(blob); setPreview(url); } })
+        .catch(() => alive && setPreview(null));
+    }, 60);
+    return () => { alive = false; window.clearTimeout(id); if (url) URL.revokeObjectURL(url); };
+  }, [tab, profile, meta, hideName, recent, i18n.lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -239,7 +284,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     <div className="mx-auto max-w-3xl">
       <section className="panel p-4 sm:p-6">
         <h2 className="font-display text-[20px] font-bold leading-6 text-ink">{t('profile.title')}</h2>
-        <p className="mt-1 text-[14px] leading-5 text-muted">{t('profile.lead')}</p>
+        {!profile && <p className="mt-1 text-[14px] leading-5 text-muted">{t('profile.lead')}</p>}
         <form onSubmit={submit} className="mt-3 flex gap-2">
           <input value={text} onChange={(e) => { setText(e.target.value); setHint(null); }} placeholder={t('profile.placeholder')} aria-label={t('profile.placeholder')}
             autoComplete="off" className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-bg-2 px-3 text-[15px] text-ink placeholder:text-muted focus:border-accent focus:outline-none" />
@@ -282,41 +327,38 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
         <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4">
           {load.kind === 'ready' && load.stale && <div className="notice">{t('profile.stale', { date: date(profile.fetchedAt) })}</div>}
 
-          <section className="panel p-4 sm:p-6">
-            <div className="flex items-center gap-3 sm:gap-4">
+          <section className="panel glass relative overflow-hidden p-4 sm:p-6">
+            <div className="profile-glow" aria-hidden="true" />
+            <div className="relative flex flex-wrap items-center gap-3 sm:gap-4">
               <Avatar src={profile.avatar} name={profile.name} size={64} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="truncate font-display text-[20px] font-bold leading-6 text-ink">{profile.name}</h3>
                   <span className={`badge ${profile.hidden ? 'badge-warn' : 'badge-pos'}`}>{t(profile.hidden ? 'profile.limited' : 'profile.open')}</span>
+                  {isMe && <span className="badge badge-pos">{t('profile.isMe')}</span>}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
-                  {rank && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
+                  {rank ? (
                     <span className="flex items-center gap-1 text-ink">
                       <img src={medalSrc(rank.medal)} alt="" width={24} height={24} aria-hidden="true" />
                       {t(`medal.${rank.medal}` as StringKey)}{rank.stars ? ` ${rank.stars}` : ''}
                       {profile.leaderboard ? <span className="text-muted"> · {t('profile.leaderboard', { n: profile.leaderboard })}</span> : null}
                     </span>
-                  )}
-                  {!profile.hidden && wr != null && (
-                    <span className="tnum"><span className="text-pos">{profile.win}</span>–<span className="text-neg">{profile.lose}</span> · {t('profile.winrate', { v: wr.toFixed(1) })} · {profile.win + profile.lose} {i18n.plural(profile.win + profile.lose, 'game')}</span>
-                  )}
+                  ) : <span>{t('profile.noRankShort')}</span>}
                   {days != null && <span>{days === 0 ? t('profile.lastGameToday') : t('profile.lastGame', { n: days })}</span>}
+                  <span className="tnum">ID {profile.id}</span>
                 </div>
               </div>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {isMe ? (
-                <>
-                  <span className="badge badge-pos">{t('profile.isMe')}</span>
+              <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+                {isMe ? (
                   <button type="button" onClick={() => setMe(null)} className="btn btn-ghost btn-sm">{t('profile.notMe')}</button>
-                </>
-              ) : (
-                <button type="button" onClick={makeMe} className="btn btn-accent btn-sm">{t('profile.me')}</button>
-              )}
-              <button type="button" onClick={() => setNonce((n) => n + 1)} className="btn btn-ghost btn-sm">{t('profile.refresh')}</button>
+                ) : (
+                  <button type="button" onClick={makeMe} className="btn btn-accent btn-sm">{t('profile.me')}</button>
+                )}
+                <button type="button" onClick={() => setNonce((n) => n + 1)} className="btn btn-ghost btn-sm" aria-label={t('profile.refresh')} title={t('profile.refresh')}>↻ <span className="sm:hidden">{t('profile.refresh')}</span></button>
+              </div>
             </div>
-            {!rank && <p className="mt-3 text-[12px] text-muted">{t('profile.noRank')}</p>}
+            {!rank && <p className="relative mt-3 text-[12px] text-muted">{t('profile.noRank')}</p>}
           </section>
 
           {profile.hidden ? (
@@ -327,9 +369,13 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
             </section>
           ) : (
             <>
+              <Tabs items={TABS.map((id) => ({ id, label: t(`profile.tab.${id}` as StringKey) }))} value={tab} onChange={setTab} label={t('profile.title')} />
+              <div key={tab} className="tab-in grid grid-cols-[minmax(0,1fr)] gap-4" role="tabpanel">
+                {tab === 'overview' && (
+                  <>
               {pool?.lowData && <div className="notice">{t('profile.lowData', { n: profile.win + profile.lose })}</div>}
               {days != null && days > APP_CONFIG.player.staleDays && <div className="notice">{t('profile.oldPool', { n: days })}</div>}
-
+                    <Overview profile={profile} stats={stats} width={width} recent={recent?.kind === 'ready' ? recent.games : null} heroById={dataset?.heroById} onTab={setTab} />
               {isMe && (
                 <section className="panel flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
                   <div className="min-w-0 flex-1">
@@ -339,7 +385,14 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   <button type="button" onClick={() => { setPoolOn(true); onUsePool(); }} className="btn btn-accent">{t('profile.pool.cta')} →</button>
                 </section>
               )}
-
+              <section className="panel p-4 sm:p-5">
+                <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.form.matches')}</h3>
+                <div className="mt-2">
+                  {recent?.kind === 'loading' && <p className="text-[13px] text-muted">{t('profile.form.loading')}</p>}
+                  {recent?.kind === 'error' && <p className="text-[13px] text-muted">{t('profile.form.error')}</p>}
+                  {recent?.kind === 'ready' && (recent.games.length ? <FormStrip games={recent.games} heroById={dataset?.heroById} /> : <p className="text-[13px] text-muted">{t('profile.form.none')}</p>)}
+                </div>
+              </section>
               {isMe && (
                 <section className="panel p-4 sm:p-5">
                   <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.roles.title')}</h3>
@@ -357,16 +410,10 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   </div>
                 </section>
               )}
-
-              <section className="panel p-4 sm:p-5">
-                <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.form.title')}</h3>
-                <div className="mt-2">
-                  {recent?.kind === 'loading' && <p className="text-[13px] text-muted">{t('profile.form.loading')}</p>}
-                  {recent?.kind === 'error' && <p className="text-[13px] text-muted">{t('profile.form.error')}</p>}
-                  {recent?.kind === 'ready' && (recent.games.length ? <FormStrip games={recent.games} heroById={dataset?.heroById} /> : <p className="text-[13px] text-muted">{t('profile.form.none')}</p>)}
-                </div>
-              </section>
-
+                  </>
+                )}
+                {tab === 'heroes' && (
+                  <>
               <section className="panel p-4 sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.heroes')}</h3>
@@ -386,27 +433,30 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                 )}
                 {meta && <p className="mt-3 text-[11px] leading-[14px] text-muted">{t('profile.meta', { rank: meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey) })} {t('profile.labelsNote')}</p>}
               </section>
-
               {meta && dataset && stats.length > 0 && (
                 <LearnSection stats={stats} dataset={dataset} meta={meta.base} roles={isMe ? me.roles : []}
                   rankLabel={meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey)} />
               )}
-
-              {width && width.heroes > 0 && (
-                <section className="panel p-4 sm:p-5">
-                  <div className="label">{t('profile.width.title')}</div>
-                  <div className="mt-1 font-display text-[16px] font-bold text-ink">{t(`profile.width.${width.label}` as StringKey)}</div>
-                  <p className="tnum mt-1 text-[13px] text-muted">{t('profile.width.text', { n: width.heroes, share: Math.round(width.top3Share * 100) })}</p>
-                </section>
-              )}
-
+                  </>
+                )}
+                {tab === 'patches' && (
+                  <>
               {dataset && <PatchSection profile={profile} heroById={dataset.heroById} />}
-
+                  </>
+                )}
+                {tab === 'friend' && (
+                  <>
               {dataset && meta && <CompareSection profile={profile} dataset={dataset} meta={meta.base} />}
-
+                  </>
+                )}
+                {tab === 'card' && (
+                  <>
               <section className="panel p-4 sm:p-5">
                 <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.share.title')}</h3>
                 <p className="mt-1 text-[13px] leading-[18px] text-muted">{t('profile.share.text')}</p>
+                <div className="card-preview mt-4">
+                  {preview ? <img src={preview} alt={t('profile.share.preview')} className="fade-in block w-full" /> : <div className="aspect-[1200/630] w-full animate-pulse bg-surface-2" />}
+                </div>
                 <label className="mt-3 flex cursor-pointer items-center gap-2 text-[13px] text-ink">
                   <input type="checkbox" checked={hideName} onChange={(e) => setHideName(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
                   {t('profile.share.hideName')}
@@ -429,6 +479,9 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   )}
                 </div>
               </section>
+                  </>
+                )}
+              </div>
             </>
           )}
           <p className="text-[11px] leading-[14px] text-muted">
