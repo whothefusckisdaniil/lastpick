@@ -158,7 +158,8 @@ export default function App() {
         <div className="bg-grid" />
         <i className="bg-spark" /><i className="bg-spark" /><i className="bg-spark" /><i className="bg-spark" /><i className="bg-spark" />
       </div>
-      <div className="relative z-[1] mx-auto w-full max-w-[1360px] px-4 pb-28 sm:px-6 md:pb-10">
+      <div className="status-cover" aria-hidden="true" />
+      <div className="app-shell relative z-[1] mx-auto w-full max-w-[1360px] pb-28 md:pb-10">
         <header className="site-header flex h-14 items-center justify-between gap-3 md:mb-4 md:h-16" data-scrolled={scrolled}>
           <button type="button" onClick={() => go('main')} className="flex min-h-[44px] items-center" aria-label="LASTPICK">
             <Logo markOnlyNarrow />

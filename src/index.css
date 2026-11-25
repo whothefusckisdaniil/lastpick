@@ -39,6 +39,10 @@
   --font-display: 'Unbounded', system-ui, sans-serif;
   --font-ui: 'Inter', system-ui, sans-serif;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* installed app (iOS standalone, black-translucent status bar): the page runs under the clock and notch */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
 html,
@@ -582,6 +586,8 @@ body {
     position: fixed;
     z-index: 71;
     inset: 0;
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
     display: flex;
     flex-direction: column;
     background: var(--color-surface);
@@ -712,7 +718,7 @@ body {
 .draft-col { display: contents; }
 .draft-strip {
   position: sticky;
-  top: 0;
+  top: var(--safe-top);
   z-index: 30;
   margin: 0 -16px;
   padding: 8px 16px;
@@ -839,7 +845,7 @@ body {
   @media (min-width: 768px) {
     .site-header {
       position: sticky;
-      top: 0;
+      top: var(--safe-top);
       z-index: 40;
       margin: 0 -24px;
       padding: 0 24px;
@@ -938,8 +944,36 @@ body {
       -webkit-backdrop-filter: blur(16px) saturate(150%);
     }
   }
-  .draft-col, .pool-col { top: 80px !important; max-height: calc(100vh - 96px) !important; }
+  .draft-col, .pool-col { top: calc(80px + var(--safe-top)) !important; max-height: calc(100vh - 96px - var(--safe-top)) !important; }
 }
 @media (min-width: 768px) and (hover: none) {
-  .draft-col, .pool-col { top: 80px !important; max-height: calc(100vh - 96px) !important; }
+  .draft-col, .pool-col { top: calc(80px + var(--safe-top)) !important; max-height: calc(100vh - 96px - var(--safe-top)) !important; }
+}
+
+/* the whole app sits below the status bar and inside the side insets */
+.app-shell {
+  padding-top: var(--safe-top);
+  padding-left: max(16px, var(--safe-left));
+  padding-right: max(16px, var(--safe-right));
+}
+@media (min-width: 640px) {
+  .app-shell { padding-left: max(24px, var(--safe-left)); padding-right: max(24px, var(--safe-right)); }
+}
+/* an opaque strip under the clock, so content scrolling up does not show through it */
+.status-cover {
+  position: fixed;
+  z-index: 45;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--safe-top);
+  background: var(--color-bg);
+  pointer-events: none;
+}
+.bottom-bar { padding-left: max(16px, var(--safe-left)); padding-right: max(16px, var(--safe-right)); }
+
+/* installed app: no rubber-band overscroll, no long-press image callouts */
+@media (display-mode: standalone) {
+  html, body { overscroll-behavior-y: none; }
+  img { -webkit-touch-callout: none; }
 }
