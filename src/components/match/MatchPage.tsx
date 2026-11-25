@@ -298,7 +298,7 @@ export default function MatchPage() {
       fights: analysis.fights, laning: analysis.laning, deaths: analysis.deaths, wards: analysis.wards, norms,
       draft, build, buildSlot, setBuildSlot: setPickedSlot, onOpenDraft: openDraft,
       patchName: patches?.find((p) => p.id === model.patchId)?.name ?? null,
-      card: { site, notAffiliated: t('app.notAffiliated'), footer: `${t('match.meta', { id: model.id, mode: '', date: '' }).split(' · ')[0]} · ${t('match.source')}` },
+      card: { site, notAffiliated: t('app.notAffiliated'), footer: t('match.meta', { id: model.id, mode: '', date: '' }).split(' · ')[0] },
     };
   }, [model, analysis, heroById, i18n, heroOf, me, draft, build, buildSlot, openDraft, patches, site, t, norms]);
   const slides = useSlides(ctx);
@@ -380,9 +380,6 @@ export default function MatchPage() {
           </div>
 
           <RecapPlayer slides={slides} matchId={model.id} shareUrl={shareUrl} />
-          <p className="mt-4 text-[11px] leading-[14px] text-muted">
-            {t('match.source')} · <a href={`https://www.opendota.com/matches/${model.id}`} target="_blank" rel="noopener" className="underline hover:text-ink">opendota.com/matches/{model.id}</a>
-          </p>
         </div>
       )}
     </div>

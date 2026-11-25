@@ -205,11 +205,7 @@ export default function App() {
             <p className="mt-2">{t('about.p4')}</p>
             <p className="mt-2">{t('about.p5')}</p>
             <p className="mt-2">{t('about.disclaimer')}</p>
-            <p className="mt-2">
-              {t('about.data')} <a href="https://stratz.com" target="_blank" rel="noopener" className="underline hover:text-ink">Powered by STRATZ</a>{' '}
-              {t('about.dataStratz')} <a href="https://www.opendota.com" target="_blank" rel="noopener" className="underline hover:text-ink">OpenDota</a>{' '}
-              {t('about.dataOpenDota')} {t('about.trademark')}
-            </p>
+            <p className="mt-2">{t('about.trademark')}</p>
           </section>
         )}
         {page === 'privacy' && (
@@ -452,10 +448,9 @@ export default function App() {
             </div>
           </div>
           <p className="mt-3">
-            {/* Attribution: STRATZ asks API users to link back; OpenDota is credited too. */}
+            {/* Attribution required by the data providers: kept here, small, and nowhere else. */}
             {t('footer.matchups')}{' '}
-            <a href="https://stratz.com" target="_blank" rel="noopener" className="underline decoration-line-2 underline-offset-2 hover:text-ink">Powered by STRATZ</a>
-            {t('footer.window')}{' '}
+            <a href="https://stratz.com" target="_blank" rel="noopener" className="underline decoration-line-2 underline-offset-2 hover:text-ink">Powered by STRATZ</a>{' · '}
             <a href="https://www.opendota.com" target="_blank" rel="noopener" className="underline decoration-line-2 underline-offset-2 hover:text-ink">OpenDota</a>
             {ready && d.meta && (
               <> · {freshnessText(freshness(d.meta), i18n)} · {t('footer.patch', { patch: d.meta.latestPatch || t('footer.unknown') })}</>

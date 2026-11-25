@@ -432,7 +432,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
             </>
           )}
           <p className="text-[11px] leading-[14px] text-muted">
-            {t('profile.source')} · <a href={`https://www.opendota.com/players/${profile.id}`} target="_blank" rel="noopener" className="underline hover:text-ink">opendota.com/players/{profile.id}</a>
+            {t('profile.source')}
           </p>
         </div>
       )}
