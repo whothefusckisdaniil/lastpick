@@ -22,6 +22,7 @@ import type { MatchPlayer } from '../../match/model';
 import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
 import { RecapPlayer } from './RecapPlayer';
+import { MyMatches } from './MyMatches';
 import { useSlides, type BuildInfo, type DraftInfo, type Loadable, type RecapCtx } from './slides';
 
 const ME_KEY = 'lp.dotaId';
@@ -245,6 +246,16 @@ export default function MatchPage() {
     if (next === id) setNonce((n) => n + 1); else setId(next);
   }
 
+  /** A match from "Your recent matches": open it, centred on the player. */
+  function pickMine(matchId: number, accountId: number) {
+    setText(String(matchId));
+    setInputError(false);
+    setPickedSlot(null);
+    setMeParam(String(accountId));
+    try { localStorage.setItem(ME_KEY, String(accountId)); } catch { /* ignore */ }
+    if (matchId === id) setNonce((n) => n + 1); else setId(matchId);
+  }
+
   function chooseMe(slot: number | null) {
     if (!model) return;
     if (slot == null) { setMeParam(null); try { localStorage.removeItem(ME_KEY); } catch { /* ignore */ } return; }
@@ -324,6 +335,7 @@ export default function MatchPage() {
           <button type="submit" className="btn btn-accent">{t('match.go')}</button>
         </form>
         {inputError && <p className="mt-2 text-[13px] text-neg" role="alert">{t('match.badInput')}</p>}
+        <MyMatches heroById={heroById} current={id} onPick={pickMine} />
       </section>
 
       {(load.kind === 'loading' || (id && !heroById && load.kind !== 'error')) && (
