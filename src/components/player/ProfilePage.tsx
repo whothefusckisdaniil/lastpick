@@ -399,7 +399,6 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
               <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.hidden.title')}</h3>
               <p className="mt-2 text-[14px] leading-5 text-muted">{t('profile.hidden.text')}</p>
               <p className="mt-2 text-[13px] leading-[18px] text-muted">{t('weekly.hidden')}</p>
-              <a href={`https://www.opendota.com/players/${profile.id}`} target="_blank" rel="noopener" className="btn btn-ghost btn-sm mt-3">opendota.com/players/{profile.id} ↗</a>
             </section>
           ) : (
             <>
