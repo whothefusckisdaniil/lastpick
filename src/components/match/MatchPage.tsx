@@ -167,12 +167,12 @@ export default function MatchPage() {
   // personal match review: the chosen player's own previous games on this hero
   // (one request per player + hero, cached; none for a private profile)
   const mePlayer = model && me != null ? model.players[me] : null;
-  const reviewKey = mePlayer?.accountId != null ? `${mePlayer.accountId}:${mePlayer.heroId}` : null;
+  const reviewKey = mePlayer?.accountId != null && model ? `${mePlayer.accountId}:${mePlayer.heroId}:${model.gameMode}` : null;
   const [heroGames, setHeroGames] = useState<{ key: string; games: HeroGame[] | null } | null>(null);
   useEffect(() => {
-    if (!reviewKey || !mePlayer?.accountId) return;
+    if (!reviewKey || !mePlayer?.accountId || !model) return;
     let alive = true;
-    loadHeroGames(mePlayer.accountId, mePlayer.heroId)
+    loadHeroGames(mePlayer.accountId, mePlayer.heroId, model.gameMode)
       .then((games) => alive && setHeroGames({ key: reviewKey, games }))
       .catch(() => alive && setHeroGames({ key: reviewKey, games: null }));
     return () => { alive = false; };
@@ -184,7 +184,7 @@ export default function MatchPage() {
       kind: 'ready',
       review: reviewMatch({
         player: mePlayer,
-        match: { id: model.id, start: model.startTime, duration: model.duration, radiantWin: model.radiantWin },
+        match: { id: model.id, start: model.startTime, duration: model.duration, radiantWin: model.radiantWin, gameMode: model.gameMode },
         position: analysis.pos.bySlot.get(mePlayer.slot) ?? null,
         history: reviewKey ? heroGames?.games ?? null : null,
       }),

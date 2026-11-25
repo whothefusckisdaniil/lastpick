@@ -331,12 +331,14 @@ export interface HeroGame {
   kills: number;
   deaths: number;
   assists: number;
-  gpm: number;
-  xpm: number;
-  lastHits: number;
-  heroDamage: number;
-  towerDamage: number;
-  heroHealing: number;
+  /** Null = OpenDota has no value for this game (unknown, not zero). */
+  gpm: number | null;
+  xpm: number | null;
+  lastHits: number | null;
+  heroDamage: number | null;
+  towerDamage: number | null;
+  heroHealing: number | null;
+  gameMode: number;
   /** 1 safe, 2 mid, 3 off, 4 jungle; parsed matches only. */
   laneRole: number | null;
   leaver: boolean;
@@ -344,44 +346,49 @@ export interface HeroGame {
 
 export interface RawHeroGameRow {
   match_id: number; start_time: number; duration: number; kills: number; deaths: number; assists: number;
-  gold_per_min: number; xp_per_min: number; last_hits: number; hero_damage: number | null; tower_damage: number | null;
-  hero_healing: number | null; lane_role: number | null; leaver_status: number | null;
+  gold_per_min: number | null; xp_per_min: number | null; last_hits: number | null; hero_damage: number | null; tower_damage: number | null;
+  hero_healing: number | null; game_mode: number; lane_role: number | null; leaver_status: number | null;
 }
 
 export const HERO_GAMES_LIMIT = 100;
 export const HERO_GAMES_TTL_MS = 6 * 3600 * 1000;
 const HERO_GAMES_KEY = 'lp.heroGames';
-const HERO_GAMES_FIELDS = ['start_time', 'duration', 'kills', 'deaths', 'assists', 'gold_per_min', 'xp_per_min', 'last_hits', 'hero_damage', 'tower_damage', 'hero_healing', 'lane_role', 'leaver_status'];
+const HERO_GAMES_FIELDS = ['start_time', 'duration', 'kills', 'deaths', 'assists', 'gold_per_min', 'xp_per_min', 'last_hits', 'hero_damage', 'tower_damage', 'hero_healing', 'game_mode', 'lane_role', 'leaver_status'];
+/** Bump when the stored row shape changes. */
+const HERO_GAMES_VERSION = 2;
+
+const numOrNull = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export const normalizeHeroGames = (rows: RawHeroGameRow[]): HeroGame[] =>
   (rows ?? []).map((r) => ({
     matchId: r.match_id, start: r.start_time, duration: r.duration ?? 0,
     kills: r.kills ?? 0, deaths: r.deaths ?? 0, assists: r.assists ?? 0,
-    gpm: r.gold_per_min ?? 0, xpm: r.xp_per_min ?? 0, lastHits: r.last_hits ?? 0,
-    heroDamage: r.hero_damage ?? 0, towerDamage: r.tower_damage ?? 0, heroHealing: r.hero_healing ?? 0,
-    laneRole: r.lane_role ?? null, leaver: (r.leaver_status ?? 0) > 1,
+    gpm: numOrNull(r.gold_per_min), xpm: numOrNull(r.xp_per_min), lastHits: numOrNull(r.last_hits),
+    heroDamage: numOrNull(r.hero_damage), towerDamage: numOrNull(r.tower_damage), heroHealing: numOrNull(r.hero_healing),
+    gameMode: r.game_mode ?? 0, laneRole: r.lane_role ?? null, leaver: (r.leaver_status ?? 0) > 1,
   }));
 
 const heroGamesMem = new Map<string, { games: HeroGame[]; at: number }>();
 const heroGamesInflight = new Map<string, Promise<HeroGame[]>>();
 
 /**
- * The player's last 100 games on a hero, one request (cached in memory and
- * localStorage; concurrent calls share one request). Compact: ~30 KB raw,
- * stored as arrays.
+ * The player's last 100 games on a hero in one game mode (Turbo is compared
+ * with Turbo, All Pick with All Pick): one request — `significant=0`, or
+ * OpenDota would drop non-standard modes — cached in memory and localStorage,
+ * concurrent calls share it. Stored compactly as arrays.
  */
-export async function loadHeroGames(accountId: number, heroId: number, opts: { now?: number } = {}): Promise<HeroGame[]> {
+export async function loadHeroGames(accountId: number, heroId: number, gameMode: number, opts: { now?: number } = {}): Promise<HeroGame[]> {
   const now = opts.now ?? Date.now();
-  const key = `${accountId}:${heroId}`;
+  const key = `${accountId}:${heroId}:${gameMode}`;
   const mem = heroGamesMem.get(key);
   if (mem && now - mem.at < HERO_GAMES_TTL_MS) return mem.games;
-  let stored: Record<string, { at: number; rows: (number | null)[][] }> = {};
+  let stored: Record<string, { v?: number; at: number; rows: (number | null)[][] }> = {};
   try { stored = JSON.parse(localStorage.getItem(HERO_GAMES_KEY) ?? '{}'); } catch { /* ignore */ }
-  const unpack = (rows: (number | null)[][]): HeroGame[] => rows.map(([matchId, start, duration, kills, deaths, assists, gpm, xpm, lastHits, heroDamage, towerDamage, heroHealing, laneRole, leaver]) => ({
-    matchId: matchId!, start: start!, duration: duration!, kills: kills!, deaths: deaths!, assists: assists!, gpm: gpm!, xpm: xpm!, lastHits: lastHits!,
-    heroDamage: heroDamage!, towerDamage: towerDamage!, heroHealing: heroHealing!, laneRole, leaver: leaver === 1,
+  const unpack = (rows: (number | null)[][]): HeroGame[] => rows.map(([matchId, start, duration, kills, deaths, assists, gpm, xpm, lastHits, heroDamage, towerDamage, heroHealing, mode, laneRole, leaver]) => ({
+    matchId: matchId!, start: start!, duration: duration!, kills: kills!, deaths: deaths!, assists: assists!, gpm, xpm, lastHits,
+    heroDamage, towerDamage, heroHealing, gameMode: mode!, laneRole, leaver: leaver === 1,
   }));
-  const hit = stored[key];
+  const hit = stored[key]?.v === HERO_GAMES_VERSION ? stored[key] : undefined;
   if (hit && now - hit.at < HERO_GAMES_TTL_MS) {
     const games = unpack(hit.rows);
     heroGamesMem.set(key, { games, at: hit.at });
@@ -392,10 +399,10 @@ export async function loadHeroGames(accountId: number, heroId: number, opts: { n
   const task = (async () => {
     try {
       const qs = HERO_GAMES_FIELDS.map((f) => `project=${f}`).join('&');
-      const games = normalizeHeroGames(await get<RawHeroGameRow[]>(`/players/${accountId}/matches?hero_id=${heroId}&limit=${HERO_GAMES_LIMIT}&${qs}`));
+      const games = normalizeHeroGames(await get<RawHeroGameRow[]>(`/players/${accountId}/matches?hero_id=${heroId}&game_mode=${gameMode}&significant=0&limit=${HERO_GAMES_LIMIT}&${qs}`));
       heroGamesMem.set(key, { games, at: now });
       try {
-        stored[key] = { at: now, rows: games.map((g) => [g.matchId, g.start, g.duration, g.kills, g.deaths, g.assists, g.gpm, g.xpm, g.lastHits, g.heroDamage, g.towerDamage, g.heroHealing, g.laneRole, g.leaver ? 1 : 0]) };
+        stored[key] = { v: HERO_GAMES_VERSION, at: now, rows: games.map((g) => [g.matchId, g.start, g.duration, g.kills, g.deaths, g.assists, g.gpm, g.xpm, g.lastHits, g.heroDamage, g.towerDamage, g.heroHealing, g.gameMode, g.laneRole, g.leaver ? 1 : 0]) };
         const keep = Object.entries(stored).sort((a, b) => b[1].at - a[1].at).slice(0, CACHE_MAX);
         localStorage.setItem(HERO_GAMES_KEY, JSON.stringify(Object.fromEntries(keep)));
       } catch { /* storage full or blocked */ }

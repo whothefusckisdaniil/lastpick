@@ -4,6 +4,9 @@
  * only normalize.ts changes.
  */
 
+/** Per-player numbers the match review compares. */
+export type ReviewStat = 'gpm' | 'xpm' | 'lastHits' | 'heroDamage' | 'towerDamage' | 'heroHealing';
+
 export interface MatchPurchase { key: string; time: number }
 
 export interface MatchPlayer {
@@ -58,6 +61,8 @@ export interface MatchPlayer {
   stuns: number | null;
   /** 0..1, parsed only. */
   teamfightShare: number | null;
+  /** Stats OpenDota did not return for this player (shown as 0 elsewhere, but unknown — not zero). */
+  missing?: ReviewStat[];
   /** OpenDota per-hero percentiles (0..1) over all ranks. */
   bench: { gpm: number | null; xpm: number | null; lhpm: number | null; damage: number | null };
 }

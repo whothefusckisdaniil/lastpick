@@ -4,13 +4,13 @@ import { clearHeroGamesMemory, loadHeroGames, type HeroGame } from '../player/ap
 import type { MatchPlayer } from './model';
 
 const START = 1_800_000_000;
-const MATCH = { id: 999, start: START, duration: 40 * 60, radiantWin: true };
+const MATCH = { id: 999, start: START, duration: 40 * 60, radiantWin: true, gameMode: 22 };
 
 /** A previous game, 40 min, with "usual" numbers unless overridden. */
 const prev = (i: number, o: Partial<HeroGame> = {}): HeroGame => ({
   matchId: i, start: START - (i + 1) * 3600, duration: 40 * 60,
   kills: 6, deaths: 6, assists: 10, gpm: 500 + (i % 5) * 10, xpm: 600 + (i % 5) * 10, lastHits: 240,
-  heroDamage: 20000, towerDamage: 2000, heroHealing: 0, laneRole: null, leaver: false, ...o,
+  heroDamage: 20000, towerDamage: 2000, heroHealing: 0, gameMode: 22, laneRole: null, leaver: false, ...o,
 });
 const history = (n: number, o: Partial<HeroGame> = {}) => Array.from({ length: n }, (_, i) => prev(i, o));
 
@@ -39,16 +39,16 @@ describe('helpers', () => {
 describe('baseline', () => {
   it('only games before this match, full length, no leavers, not this match', () => {
     const h = [...history(12), prev(50, { start: START + 100 }), prev(51, { duration: 600 }), prev(52, { leaver: true }), prev(999)];
-    const b = baseline(h, { id: 999, start: START, laneRole: null });
+    const b = baseline(h, { id: 999, start: START, gameMode: 22, laneRole: null });
     expect(b.games).toHaveLength(12);
     expect(b.basis).toBe('hero');
   });
 
   it('the same lane when it has enough games, else the whole hero', () => {
     const h = [...history(12, { laneRole: 1 }).map((g, i) => ({ ...g, matchId: 100 + i })), ...history(20, { laneRole: 3 })];
-    expect(baseline(h, { id: 999, start: START, laneRole: 1 })).toMatchObject({ basis: 'lane' });
-    expect(baseline(h, { id: 999, start: START, laneRole: 1 }).games).toHaveLength(12);
-    expect(baseline(h.slice(0, 5).concat(history(20, { laneRole: 3 })), { id: 999, start: START, laneRole: 1 })).toMatchObject({ basis: 'hero' });
+    expect(baseline(h, { id: 999, start: START, gameMode: 22, laneRole: 1 })).toMatchObject({ basis: 'lane' });
+    expect(baseline(h, { id: 999, start: START, gameMode: 22, laneRole: 1 }).games).toHaveLength(12);
+    expect(baseline(h.slice(0, 5).concat(history(20, { laneRole: 3 })), { id: 999, start: START, gameMode: 22, laneRole: 1 })).toMatchObject({ basis: 'hero' });
   });
 });
 
@@ -102,6 +102,40 @@ describe('review', () => {
     expect(short).toMatchObject({ kind: 'basic', reason: 'shortMatch', stats: { kills: 6, deaths: 6, assists: 10 } });
   });
 
+  it('only the same game mode: Turbo never meets All Pick', () => {
+    const mixed = [...history(8), ...history(30, { gameMode: 23 }).map((g, i) => ({ ...g, matchId: 500 + i }))];
+    expect(baseline(mixed, { id: 999, start: START, gameMode: 22, laneRole: null }).games).toHaveLength(8);
+    expect(review({}, mixed)).toMatchObject({ kind: 'basic', reason: 'fewGames', sample: 8 });
+    const turbo = reviewMatch({ player: player(), match: { ...MATCH, gameMode: 23 }, position: 1, history: mixed });
+    expect(turbo).toMatchObject({ kind: 'personal', sample: 30 });
+  });
+
+  it('unknown values are left out of that metric, not counted as zero', () => {
+    // 6 of 20 games have no hero damage: judged on the 14 real ones
+    const h = history(20).map((g, i) => (i < 6 ? { ...g, heroDamage: null } : g));
+    const r = review({}, h);
+    if (r.kind !== 'personal') throw new Error('expected personal');
+    const dmg = r.readings.find((x) => x.id === 'damage')!;
+    expect(dmg.sample).toBe(14);
+    expect(dmg.usual).toBe(500); // 20000 / 40 min; zeros would have dragged it down
+    expect(r.readings.find((x) => x.id === 'gpm')!.sample).toBe(20);
+  });
+
+  it('too few real values: no comparison on that metric', () => {
+    const h = history(20).map((g, i) => (i < 11 ? { ...g, towerDamage: null } : g));
+    const r = review({ towerDamage: 9000 }, h);
+    if (r.kind !== 'personal') throw new Error('expected personal');
+    expect(r.readings.map((x) => x.id)).not.toContain('towers');
+    expect(r.good?.id).not.toBe('towers');
+  });
+
+  it('a stat missing in this match is not compared', () => {
+    const r = review({ heroDamage: 0, missing: ['heroDamage'] }, history(20));
+    if (r.kind !== 'personal') throw new Error('expected personal');
+    expect(r.readings.map((x) => x.id)).not.toContain('damage');
+    expect(r.improve?.id).not.toBe('damage'); // a 0 that is really "unknown" must not read as low damage
+  });
+
   it('result and length come from the match', () => {
     expect(review({ radiant: false }, history(20))).toMatchObject({ win: false, minutes: 40, heroId: 8, position: 1 });
   });
@@ -110,7 +144,7 @@ describe('review', () => {
 describe('hero games loader', () => {
   const store = new Map<string, string>();
   let calls: string[];
-  const row = { match_id: 1, start_time: START - 3600, duration: 2400, kills: 5, deaths: 4, assists: 9, gold_per_min: 510, xp_per_min: 600, last_hits: 230, hero_damage: 18000, tower_damage: null, hero_healing: 0, lane_role: 1, leaver_status: 0 };
+  const row = { match_id: 1, start_time: START - 3600, duration: 2400, kills: 5, deaths: 4, assists: 9, gold_per_min: 510, xp_per_min: 600, last_hits: 230, hero_damage: 18000, tower_damage: null, hero_healing: 0, game_mode: 22, lane_role: 1, leaver_status: 0 };
   beforeEach(() => {
     store.clear();
     clearHeroGamesMemory();
@@ -124,22 +158,39 @@ describe('hero games loader', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('one request even for concurrent calls; then memory, then storage', async () => {
-    const [a, b] = await Promise.all([loadHeroGames(1001, 8), loadHeroGames(1001, 8)]);
+    const [a, b] = await Promise.all([loadHeroGames(1001, 8, 22), loadHeroGames(1001, 8, 22)]);
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toContain('/players/1001/matches?hero_id=8&limit=100&project=start_time');
+    expect(calls[0]).toContain('/players/1001/matches?hero_id=8&game_mode=22&significant=0&limit=100&project=start_time');
     expect(a).toBe(b);
-    expect(a[0]).toMatchObject({ matchId: 1, gpm: 510, towerDamage: 0, laneRole: 1, leaver: false });
-    await loadHeroGames(1001, 8);
+    expect(a[0]).toMatchObject({ matchId: 1, gpm: 510, towerDamage: null, heroHealing: 0, gameMode: 22, laneRole: 1, leaver: false });
+    await loadHeroGames(1001, 8, 22);
     clearHeroGamesMemory();
-    const c = await loadHeroGames(1001, 8);
+    const c = await loadHeroGames(1001, 8, 22);
     expect(calls).toHaveLength(1);
     expect(c).toEqual(a);
   });
 
+  it('each game mode is its own request and cache entry; nulls survive storage', async () => {
+    await loadHeroGames(1001, 8, 22);
+    await loadHeroGames(1001, 8, 23);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain('game_mode=23&significant=0');
+    clearHeroGamesMemory();
+    const again = await loadHeroGames(1001, 8, 22);
+    expect(calls).toHaveLength(2);
+    expect(again[0].towerDamage).toBeNull();
+  });
+
+  it('an old stored shape is ignored', async () => {
+    store.set('lp.heroGames', JSON.stringify({ '1001:8:22': { at: Date.now(), rows: [[1, 2, 3]] } }));
+    await loadHeroGames(1001, 8, 22);
+    expect(calls).toHaveLength(1);
+  });
+
   it('an outage returns the stored copy', async () => {
-    await loadHeroGames(1001, 8, { now: 0 });
+    await loadHeroGames(1001, 8, 22, { now: 0 });
     clearHeroGamesMemory();
     vi.stubGlobal('fetch', async () => new Response('', { status: 522 }));
-    expect(await loadHeroGames(1001, 8, { now: 7 * 3600_000 })).toHaveLength(1);
+    expect(await loadHeroGames(1001, 8, 22, { now: 7 * 3600_000 })).toHaveLength(1);
   });
 });

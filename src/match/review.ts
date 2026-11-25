@@ -1,6 +1,6 @@
 import { APP_CONFIG } from '../config';
 import type { HeroGame } from '../player/api';
-import type { MatchPlayer } from './model';
+import type { MatchPlayer, ReviewStat } from './model';
 
 /**
  * Match review: what went well, what to improve and the next focus for one
@@ -22,6 +22,8 @@ export interface MetricReading {
   usual: number;
   /** Share of the previous games this match did better than (0..1; "fewer deaths" counts as better). */
   beats: number;
+  /** Previous games with a known value for this metric. */
+  sample: number;
 }
 
 export interface ReviewBase {
@@ -56,11 +58,13 @@ export interface BasicReview extends ReviewBase {
 
 export type MatchReview = PersonalReview | BasicReview;
 
-interface Line { kills: number; deaths: number; assists: number; gpm: number; xpm: number; lastHits: number; heroDamage: number; towerDamage: number; heroHealing: number; duration: number }
+/** One game's numbers; null = unknown (OpenDota had no value), never treated as zero. */
+interface Line { kills: number; deaths: number; assists: number; gpm: number | null; xpm: number | null; lastHits: number | null; heroDamage: number | null; towerDamage: number | null; heroHealing: number | null; duration: number }
 
 interface MetricDef {
   id: ReviewMetricId;
-  of: (g: Line) => number;
+  /** Null when an input is unknown: that game is left out of this metric only. */
+  of: (g: Line) => number | null;
   lowerIsBetter?: boolean;
   /** Skip at these positions (meaningless there). */
   skipAt?: number[];
@@ -68,13 +72,13 @@ interface MetricDef {
   floor?: number;
 }
 
-const perMin = (v: number, g: Line) => v / Math.max(1, g.duration / 60);
+const perMin = (v: number | null, g: Line) => (v == null ? null : v / Math.max(1, g.duration / 60));
 
 /** In priority order: on equal strength the earlier one is named. */
 export const REVIEW_METRICS: MetricDef[] = [
-  { id: 'deaths', of: (g) => 10 * perMin(g.deaths, g), lowerIsBetter: true },
+  { id: 'deaths', of: (g) => 10 * perMin(g.deaths, g)!, lowerIsBetter: true },
   { id: 'gpm', of: (g) => g.gpm },
-  { id: 'ka', of: (g) => 10 * perMin(g.kills + g.assists, g) },
+  { id: 'ka', of: (g) => 10 * perMin(g.kills + g.assists, g)! },
   { id: 'damage', of: (g) => perMin(g.heroDamage, g) },
   { id: 'xpm', of: (g) => g.xpm },
   { id: 'lastHits', of: (g) => perMin(g.lastHits, g), skipAt: [4, 5] },
@@ -101,8 +105,9 @@ export function beatsShare(value: number, others: number[], lowerIsBetter = fals
 }
 
 /** The previous games to compare with: before this match, full length, no leavers; same lane when enough. */
-export function baseline(history: HeroGame[], match: { id: number; start: number; laneRole: number | null }, cfg = APP_CONFIG.review): { games: HeroGame[]; basis: 'lane' | 'hero' } {
-  const prev = history.filter((g) => g.matchId !== match.id && g.start < match.start && !g.leaver && g.duration >= cfg.minDurationSec);
+export function baseline(history: HeroGame[], match: { id: number; start: number; gameMode: number; laneRole: number | null }, cfg = APP_CONFIG.review): { games: HeroGame[]; basis: 'lane' | 'hero' } {
+  // same game mode (the loader asks for it; checked again so Turbo never meets All Pick)
+  const prev = history.filter((g) => g.gameMode === match.gameMode && g.matchId !== match.id && g.start < match.start && !g.leaver && g.duration >= cfg.minDurationSec);
   if (match.laneRole != null) {
     const lane = prev.filter((g) => g.laneRole === match.laneRole);
     if (lane.length >= cfg.minGames) return { games: lane, basis: 'lane' };
@@ -112,13 +117,19 @@ export function baseline(history: HeroGame[], match: { id: number; start: number
 
 export function reviewMatch(input: {
   player: MatchPlayer;
-  match: { id: number; start: number; duration: number; radiantWin: boolean };
+  match: { id: number; start: number; duration: number; radiantWin: boolean; gameMode: number };
   position: number | null;
   /** The player's games on this hero; null = could not be loaded. */
   history: HeroGame[] | null;
 }, cfg = APP_CONFIG.review): MatchReview {
   const { player: p, match: m } = input;
-  const line: Line = { ...p, duration: m.duration };
+  const unknown = new Set<ReviewStat>(p.missing ?? []);
+  const known = (k: ReviewStat) => (unknown.has(k) ? null : p[k]);
+  const line: Line = {
+    kills: p.kills, deaths: p.deaths, assists: p.assists, duration: m.duration,
+    gpm: known('gpm'), xpm: known('xpm'), lastHits: known('lastHits'),
+    heroDamage: known('heroDamage'), towerDamage: known('towerDamage'), heroHealing: known('heroHealing'),
+  };
   const base: ReviewBase = { heroId: p.heroId, position: input.position, minutes: Math.round(m.duration / 60), win: p.radiant === m.radiantWin };
   const basic = (reason: BasicReason, sample = 0): BasicReview => ({
     ...base, kind: 'basic', reason, sample,
@@ -129,17 +140,20 @@ export function reviewMatch(input: {
   if (p.leaver) return basic('leaver');
   if (m.duration < cfg.minDurationSec) return basic('shortMatch');
   if (!input.history) return basic('unavailable');
-  const { games, basis } = baseline(input.history, { id: m.id, start: m.start, laneRole: p.laneRole }, cfg);
+  const { games, basis } = baseline(input.history, { id: m.id, start: m.start, gameMode: m.gameMode, laneRole: p.laneRole }, cfg);
   if (games.length < cfg.minGames) return basic('fewGames', games.length);
 
   const lines: Line[] = games.map((g) => ({ ...g }));
   const readings: MetricReading[] = [];
   for (const d of REVIEW_METRICS) {
     if (input.position != null && d.skipAt?.includes(input.position)) continue;
-    const others = lines.map(d.of);
+    const value = d.of(line);
+    if (value == null) continue; // unknown in this match: no comparison
+    const others = lines.map(d.of).filter((v): v is number => v != null);
+    if (others.length < cfg.minGames) continue; // too few games with a real value
     const usual = median(others);
     if (d.floor != null && usual < d.floor) continue;
-    readings.push({ id: d.id, value: d.of(line), usual, beats: beatsShare(d.of(line), others, d.lowerIsBetter) });
+    readings.push({ id: d.id, value, usual, beats: beatsShare(value, others, d.lowerIsBetter), sample: others.length });
   }
   // the strongest on each side; REVIEW_METRICS order breaks ties
   const good = readings.filter((r) => r.beats >= cfg.goodShare).sort((a, b) => b.beats - a.beats)[0] ?? null;

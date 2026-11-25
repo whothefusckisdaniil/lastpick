@@ -120,6 +120,8 @@ export function normalizeMatch(raw: RawMatch, heroKeyOf: (heroId: number) => str
       heroDamage: n(p.hero_damage),
       towerDamage: n(p.tower_damage),
       heroHealing: n(p.hero_healing),
+      missing: ([['gpm', p.gold_per_min], ['xpm', p.xp_per_min], ['lastHits', p.last_hits], ['heroDamage', p.hero_damage], ['towerDamage', p.tower_damage], ['heroHealing', p.hero_healing]] as const)
+        .filter(([, v]) => opt(v) == null).map(([k]) => k),
       level: n(p.level),
       items: [p.item_0, p.item_1, p.item_2, p.item_3, p.item_4, p.item_5].map(n).filter((x) => x > 0),
       backpack: [p.backpack_0, p.backpack_1, p.backpack_2].map(n).filter((x) => x > 0),
