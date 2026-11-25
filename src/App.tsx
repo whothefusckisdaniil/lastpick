@@ -10,6 +10,7 @@ import { ShareMenu } from './components/ShareMenu';
 import { cardPicks, type CardData } from './share/shareCard';
 import { BanSuggestions } from './components/BanSuggestions';
 import { ResultsGrid, ResultsSkeleton } from './components/ResultsGrid';
+import { ScoreLegend } from './components/CandidateCard';
 import { HeroDetailsDrawer } from './components/HeroDetailsDrawer';
 import { HeroPool } from './components/HeroPool';
 import { TopSupports } from './components/TopSupports';
@@ -393,6 +394,7 @@ export default function App() {
                     <div className="md:hidden"><ShareMenu card={shareCard} /></div>
                   </div>
 
+                  {d.results && <ScoreLegend />}
                   {me.poolWanted && me.status.kind === 'loading' && <div className="notice mb-3">{t('pool.loading')}</div>}
                   {me.poolWanted && me.status.kind === 'error' && <div className="notice mb-3">{t('pool.error')}</div>}
                   {(d.rankLoading || (d.allies.length > 0 && d.synergyLoading)) && !d.results ? (

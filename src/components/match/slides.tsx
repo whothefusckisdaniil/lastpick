@@ -130,7 +130,7 @@ function TeamLine({ c, radiant }: { c: RecapCtx; radiant: boolean }) {
               {c.heroOf(p) && <HeroPortrait hero={c.heroOf(p)!} fill />}
             </span>
             <span className="mt-1 block truncate text-center text-[11px] leading-[14px] text-muted">{heroName(c, p)}</span>
-            <span className="tnum block text-center text-[11px] font-semibold leading-[14px] text-ink">{p.kills}/{p.deaths}/{p.assists}</span>
+            <span className="tnum block text-center text-[11px] font-semibold leading-[14px] text-ink" title={c.i18n.t('cover.kda')}>{p.kills}/{p.deaths}/{p.assists}</span>
           </li>
         ))}
       </ul>
@@ -150,11 +150,21 @@ export function coverSlide(c: RecapCtx): Slide {
         <Kicker>{metaLine(c)}</Kicker>
         <Headline>{me ?? head}</Headline>
         {me && <p className="mt-1 text-[14px] leading-5 text-muted">{head}</p>}
-        <div className="mt-4 flex items-baseline justify-center gap-4 font-display font-bold">
-          <span className={`tnum text-[40px] leading-none ${c.m.radiantWin ? 'text-pos' : 'text-muted'}`}>{c.m.radiantScore}</span>
-          <span className="text-[14px] text-muted">{t('match.min', { n: c.verdict.minute })}</span>
-          <span className={`tnum text-[40px] leading-none ${!c.m.radiantWin ? 'text-neg' : 'text-muted'}`}>{c.m.direScore}</span>
+        <div className="mt-4 flex items-start justify-center gap-5 font-display font-bold">
+          <span className="text-center">
+            <span className={`tnum block text-[40px] leading-none ${c.m.radiantWin ? 'text-pos' : 'text-muted'}`}>{c.m.radiantScore}</span>
+            <span className="mt-1 block font-sans text-[11px] font-medium text-muted">{t('cover.kills')}</span>
+          </span>
+          <span className="pt-3 text-center">
+            <span className="block text-[14px] text-muted">{t('match.min', { n: c.verdict.minute })}</span>
+            <span className="mt-1 block font-sans text-[11px] font-medium text-muted">{t('cover.duration')}</span>
+          </span>
+          <span className="text-center">
+            <span className={`tnum block text-[40px] leading-none ${!c.m.radiantWin ? 'text-neg' : 'text-muted'}`}>{c.m.direScore}</span>
+            <span className="mt-1 block font-sans text-[11px] font-medium text-muted">{t('cover.kills')}</span>
+          </span>
         </div>
+        <p className="mt-3 text-center text-[11px] text-muted">{t('cover.kda')}</p>
         <div className="mt-5 grid gap-5">
           <TeamLine c={c} radiant />
           <TeamLine c={c} radiant={false} />
@@ -735,11 +745,15 @@ function LaneSide({ c, ps, radiant }: { c: RecapCtx; ps: LaneResult['radiant']; 
           <Portrait c={c} p={c.m.players[p.slot]} size={30} ring={c.me === p.slot} />
           <div className="min-w-0">
             <div className="truncate text-[13px] font-semibold text-ink">{heroName(c, c.m.players[p.slot])}</div>
-            <div className="tnum text-[11px] leading-[14px] text-muted">{number(p.gold)} · {p.lh}/{p.dn}{p.eff != null && <span className="hidden sm:inline"> · {t('lanes.eff', { pct: Math.round(p.eff * 100) })}</span>}</div>
-            {cs10Norm(c, p.slot) != null && (() => {
-              const n = cs10Norm(c, p.slot)!;
-              const tone = Math.abs(p.lh / n - 1) < 0.1 ? 'text-muted' : p.lh > n ? 'text-pos' : 'text-neg';
-              return <div className={`tnum text-[11px] leading-[14px] ${tone}`}>{t('lanes.norm', { n: Math.round(n) })}</div>;
+            <div className="tnum text-[11px] leading-[14px] text-muted">{t('lanes.stats', { gold: number(p.gold), lh: p.lh, dn: p.dn })}</div>
+            {(() => {
+              const n = cs10Norm(c, p.slot);
+              const tone = n == null || Math.abs(p.lh / n - 1) < 0.1 ? 'text-muted' : p.lh > n ? 'text-pos' : 'text-neg';
+              const parts = [
+                n != null ? <span key="n" className={tone}>{t('lanes.norm', { n: Math.round(n) })}</span> : null,
+                p.eff != null ? <span key="e" title={t('lanes.effHint')}>{t('lanes.eff', { pct: Math.round(p.eff * 100) })}</span> : null,
+              ].filter(Boolean);
+              return parts.length ? <div className="tnum text-[11px] leading-[14px] text-muted">{parts.flatMap((x, k) => (k ? [' · ', x] : [x]))}</div> : null;
             })()}
           </div>
         </li>
@@ -857,7 +871,11 @@ export function fightsSlide(c: RecapCtx): Slide {
               ))}
             </div>
             <p className="mt-2 text-[12px] text-muted">{t('fights.tap')}</p>
-            <ul className="mt-2 grid gap-1.5">{c.fights.map((f) => <FightRow key={f.start} c={c} f={f} />)}</ul>
+            <div className="mt-3 flex items-baseline justify-between gap-3 px-3 text-[11px] text-muted">
+              <span>{t('fights.colLeft')}</span>
+              <span className="text-right">{t('fights.colGold', { team: teamName(c, true) })}</span>
+            </div>
+            <ul className="mt-1 grid gap-1.5">{c.fights.map((f) => <FightRow key={f.start} c={c} f={f} />)}</ul>
             <Note>{t('fights.note')}</Note>
           </>
         )}

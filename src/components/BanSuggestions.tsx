@@ -47,7 +47,10 @@ export function BanSuggestions({ items, heroById, canBan, onBan }: {
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-2">
                   <span className="truncate text-[15px] font-semibold leading-5 text-ink">{name}</span>
-                  <span className="tnum ml-auto shrink-0 text-[13px] font-semibold text-neg">{scoreText(b.score)}</span>
+                  <span className="ml-auto shrink-0 text-right leading-none" title={t('bans.threatHint')}>
+                    <span className="tnum block text-[13px] font-semibold text-neg">{scoreText(b.score)}</span>
+                    <span className="mt-0.5 block text-[10px] text-muted">{t('bans.threat')}</span>
+                  </span>
                 </span>
                 {threats.length > 0 && (
                   <span className="mt-0.5 block truncate text-[11px] leading-[14px] text-muted">{t('bans.counters', { names: names(threats.map((x) => x.allyId)) })}</span>

@@ -18,18 +18,39 @@ export function formatMatches(count: number): string {
   return `${Math.round((count / 1_000_000) * 10) / 10}M`;
 }
 
-/** One segment per enemy: green = favourable, red = unfavourable, grey = no data. */
-export function MatchBar({ c, className = '' }: { c: CandidateScore; className?: string }) {
-  const { t } = useI18n();
+/** One segment per enemy: green = favourable, red = unfavourable, grey = no data.
+ *  Each segment names its enemy and the advantage on hover. */
+export function MatchBar({ c, className = '', heroById }: { c: CandidateScore; className?: string; heroById?: Map<number, Hero> }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   if (c.matchups.length === 0) return null;
   const usable = c.matchups.filter((m) => m.usable);
   const k = usable.filter((m) => m.delta > 0).length;
   return (
-    <span className={`match-bar ${className}`} role="img" aria-label={t('row.bar', { k, n: c.matchups.length })} title={t('row.bar', { k, n: c.matchups.length })}>
-      {c.matchups.map((m) => (
-        <i key={m.enemyId} className={!m.usable ? '' : m.delta > 0 ? 'pos' : 'neg'} />
-      ))}
+    <span className={`match-bar ${className}`} role="img" aria-label={t('row.bar', { k, n: c.matchups.length })} title={heroById ? undefined : t('row.bar', { k, n: c.matchups.length })}>
+      {c.matchups.map((m) => {
+        const h = heroById?.get(m.enemyId);
+        const tip = h ? `${t('legend.vs', { name: i18n.heroName(h) })}: ${m.usable ? scoreText(m.delta) : t('legend.noData')}` : undefined;
+        return <i key={m.enemyId} className={!m.usable ? '' : m.delta > 0 ? 'pos' : 'neg'} title={tip} />;
+      })}
     </span>
+  );
+}
+
+/** What the big numbers and the coloured bars mean — shown once above the results. */
+export function ScoreLegend() {
+  const { t } = useI18n();
+  return (
+    <div className="legend fade-in" role="note">
+      <span className="legend-item">
+        <span className="tnum font-display text-[13px] font-bold text-pos">+2.30</span>
+        <span>{t('legend.score')}</span>
+      </span>
+      <span className="legend-item">
+        <span className="match-bar w-12 flex-none" aria-hidden="true"><i className="pos" /><i className="pos" /><i className="neg" /><i className="pos" /></span>
+        <span>{t('legend.bar')}</span>
+      </span>
+    </div>
   );
 }
 
@@ -56,9 +77,10 @@ export function BestCard({ c, lane, heroById, onViewDetails }: {
           <h3 className="mt-1 truncate font-display text-[16px] font-bold leading-5 text-ink sm:text-[20px] sm:leading-6">{name}</h3>
           {i18n.heroAltName(c.hero) && <div className="truncate text-[11px] leading-[14px] text-muted">{i18n.heroAltName(c.hero)}</div>}
           <div className={`tnum mt-1 font-display text-[32px] font-bold leading-[38px] ${scoreTone(c.finalScore)}`}>{scoreText(c.finalScore)}</div>
+          <div className="text-[11px] leading-[14px] text-muted">{t('legend.scoreShort')}</div>
         </div>
       </div>
-      <MatchBar c={c} className="mt-3" />
+      <MatchBar c={c} className="mt-3 !h-[6px]" heroById={heroById} />
       <div className="mt-3 flex flex-wrap gap-1.5">
         {c.matchups.length > 0 && <span className="badge">{t('card.coverage', { k: coverage, n: c.matchups.length })}</span>}
         <span className="badge">{t('card.matches', { count: formatMatches(c.avgGames) })}</span>
@@ -85,8 +107,9 @@ export function BestCard({ c, lane, heroById, onViewDetails }: {
 
 /** A 64 px result line: portrait 48, name, number, per-enemy match bar.
  *  `tag` replaces the rank number (the role name in the per-role overview). */
-export function ResultRow({ c, rank, tag, onViewDetails, style }: {
+export function ResultRow({ c, rank, tag, onViewDetails, style, heroById }: {
   c: CandidateScore;
+  heroById?: Map<number, Hero>;
   rank?: number;
   tag?: string;
   onViewDetails: (c: CandidateScore) => void;
@@ -114,7 +137,7 @@ export function ResultRow({ c, rank, tag, onViewDetails, style }: {
           ) : null}
         </span>
         <span className="block truncate text-[15px] font-semibold leading-5 text-ink">{name}</span>
-        <MatchBar c={c} className="mt-1.5 max-w-[160px]" />
+        <MatchBar c={c} className="mt-1.5 max-w-[160px]" heroById={heroById} />
       </span>
       <span className={`tnum shrink-0 font-display text-[16px] font-bold ${scoreTone(c.finalScore)}`}>{scoreText(c.finalScore)}</span>
     </button>

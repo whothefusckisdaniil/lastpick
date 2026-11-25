@@ -639,7 +639,21 @@ body {
   }
   .result-row:hover { background: var(--color-surface-2); border-color: var(--color-line-2); }
   .result-row:disabled { cursor: not-allowed; opacity: 0.6; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    border: 1px dashed var(--color-line-2);
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-muted);
+  }
+  .legend-item { display: inline-flex; align-items: center; gap: 8px; }
   .match-bar { display: flex; gap: 2px; height: 4px; }
+  .match-bar i[title] { cursor: help; }
   .match-bar i { flex: 1; border-radius: 2px; background: var(--color-line-2); }
   .match-bar i.pos { background: var(--color-pos); }
   .match-bar i.neg { background: var(--color-neg); }

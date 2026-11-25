@@ -37,6 +37,7 @@ export function ResultsGrid({ results, heroById, onViewDetails, summary = false 
               key={lane}
               c={list[0]}
               tag={title(lane)}
+              heroById={heroById}
               style={{ '--i': i } as React.CSSProperties}
               onViewDetails={(candidate) => onViewDetails(candidate, lane)}
             />
@@ -64,6 +65,7 @@ export function ResultsGrid({ results, heroById, onViewDetails, summary = false 
                         key={c.hero.id}
                         c={c}
                         rank={i + 2}
+                        heroById={heroById}
                         style={{ '--i': i } as React.CSSProperties}
                         onViewDetails={(candidate) => onViewDetails(candidate, lane)}
                       />
