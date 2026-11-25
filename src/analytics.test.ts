@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { beforeSend, resetAnalyticsState } from './analytics';
+import { analyticsUrl, beforeSend, resetAnalyticsState } from './analytics';
 
 const pv = (url: string) => beforeSend({ type: 'pageview', url });
 
@@ -15,5 +15,12 @@ describe('analytics beforeSend', () => {
   it('marks a visit that opened a shared draft link', () => {
     expect(pv('https://x.app/?enemy=13,29&lang=ru')).toEqual({ type: 'pageview', url: 'https://x.app/?via=draft-link' });
     expect(pv('https://x.app/?enemy=13,29,8')).toBeNull();
+  });
+});
+
+describe('player profile privacy', () => {
+  it('a Dota ID in the address never reaches the analytics', () => {
+    expect(analyticsUrl('https://lastpick.app/?player=123456789&profile', true)).toBe('https://lastpick.app/');
+    expect(analyticsUrl('https://lastpick.app/?profile&pool=on', false)).toBe('https://lastpick.app/');
   });
 });

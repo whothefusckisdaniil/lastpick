@@ -262,7 +262,7 @@ export function scoreCandidates(input: ScoreInput, pos: Lane, opts: AggOptions =
     });
   }
   results.sort((a, b) => b.finalScore - a.finalScore);
-  return results.slice(0, cfg.topN);
+  return results.slice(0, opts.topN ?? cfg.topN);
 }
 
 /** mean / median / min / max over usable shrunk deltas (pp). */

@@ -129,6 +129,8 @@ export interface AggOptions {
   model?: AggModel;
   /** Lab override for APP_CONFIG.scoring.requireFullCoverage. */
   requireFullCoverage?: boolean;
+  /** How many results to keep (default APP_CONFIG.scoring.topN); the pool mode keeps all. */
+  topN?: number;
 }
 
 export interface CandidateScore {

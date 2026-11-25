@@ -36,11 +36,12 @@ export function LogoMark({ size = 28, className = '', glow = false }: { size?: n
 }
 
 /** Horizontal logo: mark + LASTPICK (LAST white, PICK amber), Unbounded Bold. */
-export function Logo({ compact = false }: { compact?: boolean }) {
+/** `markOnlyNarrow`: on very narrow screens (< 440 px) only the mark, so the header fits. */
+export function Logo({ compact = false, markOnlyNarrow = false }: { compact?: boolean; markOnlyNarrow?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2.5">
       <LogoMark size={compact ? 22 : 26} glow />
-      <span className="font-display text-[17px] font-bold leading-none tracking-[0.02em]">
+      <span className={`font-display text-[17px] font-bold leading-none tracking-[0.02em] ${markOnlyNarrow ? 'max-[439px]:hidden' : ''}`}>
         <span className="text-[#F2F5FA]">LAST</span>
         <span className="text-accent">PICK</span>
       </span>

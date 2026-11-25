@@ -20,22 +20,37 @@ import { DiamondLoader, EmptyDiamonds, Logo } from './components/Brand';
 import { ScoringPlayground } from './components/ScoringPlayground';
 import { DraftValidation } from './components/DraftValidation';
 import { MatchErrorBoundary } from './components/match/MatchErrorBoundary';
+import { Avatar, PoolChip, PoolResults } from './components/player/PoolResults';
+import { setPoolOn, useMe } from './player/usePlayer';
 
 const SHOW_PLAYGROUND = import.meta.env.DEV;
 // Match analysis: its own chunk, the draft page does not download it.
 const MatchPage = lazy(() => import('./components/match/MatchPage'));
+// Player profile: its own chunk too.
+const ProfilePage = lazy(() => import('./components/player/ProfilePage'));
 
-type Page = 'main' | 'about' | 'privacy' | 'match';
+type Page = 'main' | 'about' | 'privacy' | 'match' | 'profile';
 
-const isMatchUrl = () => { try { return new URLSearchParams(window.location.search).has('match'); } catch { return false; } };
-
-/** Enter / leave the match page: `?match=` in the address, a history entry for Back. */
-function setMatchUrl(on: boolean) {
+/** The page the address points at: `?match…` or `?profile` / `?player=ID`. */
+function pageFromUrl(): Page | null {
   try {
     const p = new URLSearchParams(window.location.search);
-    if (on === p.has('match')) return;
-    if (on) p.set('match', ''); else { p.delete('match'); p.delete('me'); }
-    const qs = p.toString().replace(/%2C/gi, ',').replace(/match=(&|$)/, 'match$1');
+    if (p.has('match')) return 'match';
+    if (p.has('profile') || p.has('player')) return 'profile';
+  } catch { /* sandboxed */ }
+  return null;
+}
+
+/** Enter / leave the match or profile page: a flag in the address, a history entry for Back. */
+function setPageUrl(page: Page) {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    const want = page === 'match' ? 'match' : page === 'profile' ? 'profile' : null;
+    const now = p.has('match') ? 'match' : p.has('profile') || p.has('player') ? 'profile' : null;
+    if (want === now) return;
+    for (const k of ['match', 'me', 'profile', 'player']) p.delete(k);
+    if (want) p.set(want, '');
+    const qs = p.toString().replace(/%2C/gi, ',').replace(/(match|profile)=(&|$)/, '$1$2');
     window.history.pushState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
   } catch { /* sandboxed */ }
 }
@@ -64,11 +79,12 @@ const SearchIcon = () => (
 );
 
 export default function App() {
-  const d = useDraftData();
+  const me = useMe();
+  const d = useDraftData({ poolProfile: me.poolOn ? me.profile : null });
   const i18n = useI18n();
   const { t } = i18n;
   const [view, setView] = useState<'draft' | 'lab' | 'validate'>('draft');
-  const [page, setPage] = useState<Page>(() => (isMatchUrl() ? 'match' : 'main'));
+  const [page, setPage] = useState<Page>(() => pageFromUrl() ?? 'main');
   const [details, setDetails] = useState<{ c: CandidateScore; lane: Exclude<PositionFilter, 'all'> } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const isDesktop = useMedia(DESKTOP);
@@ -78,7 +94,7 @@ export default function App() {
   useEffect(() => setDetails(null), [d.enemies, d.allies, d.bans]);
   useEffect(() => setDetails(null), [page]);
   useEffect(() => {
-    const onPop = () => setPage((p) => (isMatchUrl() ? 'match' : p === 'match' ? 'main' : p));
+    const onPop = () => setPage((p) => pageFromUrl() ?? (p === 'match' || p === 'profile' ? 'main' : p));
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -90,7 +106,7 @@ export default function App() {
   }, [d.heroes]);
 
   function go(next: Page) {
-    setMatchUrl(next === 'match');
+    setPageUrl(next);
     setPage(next);
     window.scrollTo({ top: 0 });
   }
@@ -137,7 +153,7 @@ export default function App() {
       <div className="relative z-[1] mx-auto w-full max-w-[1360px] px-4 pb-28 sm:px-6 md:pb-10">
         <header className="flex h-12 items-center justify-between gap-3 md:mb-4 md:h-16">
           <button type="button" onClick={() => go('main')} className="flex min-h-[44px] items-center" aria-label="LASTPICK">
-            <Logo />
+            <Logo markOnlyNarrow />
           </button>
           <h1 className="sr-only">LASTPICK — {t('app.tagline')}</h1>
           <div className="flex items-center gap-2">
@@ -153,14 +169,27 @@ export default function App() {
                 <option value="lab">Scoring lab</option>
               </select>
             )}
+            <button type="button" onClick={() => go(page === 'profile' ? 'main' : 'profile')} aria-pressed={page === 'profile'}
+              className={`btn btn-sm !min-h-[36px] !px-2.5 ${page === 'profile' ? 'btn-accent' : 'btn-ghost'}`} title={t('nav.profile')}>
+              {me.profile ? <Avatar src={me.profile.avatar} name={me.profile.name} size={20} /> : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
+                </svg>
+              )}
+              <span className="hidden lg:inline">{t('nav.profile')}</span>
+              <span className="sr-only lg:hidden">{t('nav.profile')}</span>
+            </button>
             <button type="button" onClick={() => go(page === 'match' ? 'main' : 'match')} aria-pressed={page === 'match'}
               className={`btn btn-sm !min-h-[36px] !px-2.5 ${page === 'match' ? 'btn-accent' : 'btn-ghost'}`} title={t('nav.match')}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 3v18h18" /><path d="M7 15l4-4 3 3 6-7" />
               </svg>
-              <span className="hidden sm:inline">{t('nav.match')}</span>
-              <span className="sr-only sm:hidden">{t('nav.match')}</span>
+              <span className="hidden lg:inline">{t('nav.match')}</span>
+              <span className="sr-only lg:hidden">{t('nav.match')}</span>
             </button>
+            {ready && page === 'main' && me.profile && !me.profile.hidden && (
+              <span className="hidden sm:inline-flex"><PoolChip profile={me.profile} on={me.poolOn} onToggle={() => setPoolOn(!me.poolWanted)} /></span>
+            )}
             {ready && page !== 'match' && <RankChip value={d.rank} options={d.rankOptions} onChange={d.setRank} />}
             <LanguageSwitch />
           </div>
@@ -192,6 +221,7 @@ export default function App() {
               <li>{t('privacy.noSteam')}</li>
               <li>{t('privacy.analytics')}</li>
               <li>{t('privacy.match')}</li>
+              <li>{t('privacy.player')}</li>
             </ul>
             <p className="mt-3">{t('privacy.note')}</p>
           </section>
@@ -201,6 +231,14 @@ export default function App() {
           <MatchErrorBoundary text={t('match.crash')} reset={t('match.crashReset')}>
             <Suspense fallback={<div className="mt-10 flex justify-center"><DiamondLoader label={t('match.loading')} /></div>}>
               <MatchPage />
+            </Suspense>
+          </MatchErrorBoundary>
+        )}
+
+        {page === 'profile' && (
+          <MatchErrorBoundary text={t('match.crash')} reset={t('match.crashReset')}>
+            <Suspense fallback={<div className="mt-10 flex justify-center"><DiamondLoader label={t('profile.loading')} /></div>}>
+              <ProfilePage onRank={d.setRank} rankOptions={d.rankOptions} onUsePool={() => go('main')} />
             </Suspense>
           </MatchErrorBoundary>
         )}
@@ -282,6 +320,9 @@ export default function App() {
                   <h2 className="label mb-2">{t('role.title')}</h2>
                   <PositionTabs value={d.position} onChange={d.setPosition} />
                 </div>
+                {me.profile && !me.profile.hidden && (
+                  <div className="sm:hidden"><PoolChip profile={me.profile} on={me.poolOn} onToggle={() => setPoolOn(!me.poolWanted)} /></div>
+                )}
                 {d.taken.size > 0 && (
                   <div className="hidden gap-2 md:flex">
                     <ShareMenu card={shareCard} align="left" />
@@ -356,8 +397,22 @@ export default function App() {
                     <div className="md:hidden"><ShareMenu card={shareCard} /></div>
                   </div>
 
+                  {me.poolWanted && me.status.kind === 'loading' && <div className="notice mb-3">{t('pool.loading')}</div>}
+                  {me.poolWanted && me.status.kind === 'error' && <div className="notice mb-3">{t('pool.error')}</div>}
                   {(d.rankLoading || (d.allies.length > 0 && d.synergyLoading)) && !d.results ? (
                     <ResultsSkeleton />
+                  ) : me.poolOn && me.profile && d.poolResults && d.pool ? (
+                    <div key={`pool|${resultsKey}`} className="fade-in">
+                      <PoolResults
+                        results={d.poolResults}
+                        overall={d.results}
+                        profile={me.profile}
+                        lowData={d.pool.lowData}
+                        summary={d.position === 'all'}
+                        onViewDetails={(candidate, lane) => setDetails({ c: candidate, lane })}
+                        onOff={() => setPoolOn(false)}
+                      />
+                    </div>
                   ) : (
                     <div key={resultsKey} className="fade-in">
                       <ResultsGrid
@@ -389,6 +444,7 @@ export default function App() {
               <span>{t('app.tagline')} · {t('app.notAffiliated')}</span>
             </div>
             <div className="flex items-center gap-1">
+              <button type="button" onClick={() => go('profile')} className={`btn btn-sm !min-h-[36px] !border-0 ${page === 'profile' ? 'text-accent' : 'text-muted hover:text-ink'}`}>{t('nav.profile')}</button>
               <button type="button" onClick={() => go('match')} className={`btn btn-sm !min-h-[36px] !border-0 ${page === 'match' ? 'text-accent' : 'text-muted hover:text-ink'}`}>{t('nav.match')}</button>
               <button type="button" onClick={() => go('about')} className={`btn btn-sm !min-h-[36px] !border-0 ${page === 'about' ? 'text-accent' : 'text-muted hover:text-ink'}`}>{t('nav.about')}</button>
               <button type="button" onClick={() => go('privacy')} className={`btn btn-sm !min-h-[36px] !border-0 ${page === 'privacy' ? 'text-accent' : 'text-muted hover:text-ink'}`}>{t('nav.privacy')}</button>

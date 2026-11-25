@@ -19,7 +19,10 @@ import { scoreCandidates } from '../scoring/engine';
 import { suggestBans } from '../scoring/bans';
 import { winChance } from '../scoring/winChance';
 import { assignAllyPositions, lanePartner, LANE_PARTNER } from '../scoring/allyPositions';
-import type { LaneInput } from '../scoring/engine';
+import type { LaneInput, ScoreInput } from '../scoring/engine';
+import { scorePool, type PoolResult } from '../scoring/poolScoring';
+import { poolOf } from '../player/poolStats';
+import type { PlayerProfile } from '../player/api';
 import { buildDraftSearch, draftTitle, parseDraftUrl } from './draftUrl';
 import { useI18n } from '../i18n';
 
@@ -79,7 +82,7 @@ function initialUrlState() {
 /** Production data flow (§23): one static snapshot → local state → local scoring.
  *  Recommendations recompute automatically on every draft change (§9) — no
  *  Calculate button, no network per pick. */
-export function useDraftData() {
+export function useDraftData({ poolProfile = null }: { poolProfile?: PlayerProfile | null } = {}) {
   const [urlState] = useState(initialUrlState);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loadState, setLoadState] = useState<LoadState>({ kind: 'loading' });
@@ -308,6 +311,12 @@ export function useDraftData() {
     };
   }, [allyPositions, laneIndex, laneTables, activeRank]);
 
+  const scoreInputFor = useCallback((lane: Exclude<PositionFilter, 'all'>): ScoreInput => ({
+    heroes, enemyIds: enemies, matchupByEnemy: matchups, heroById, positions, baseWinrates,
+    allyIds: allies, synergyByAlly: synergy, excludeIds: me ? [...bans, me] : bans,
+    lane: laneInputFor(lane),
+  }), [heroes, enemies, matchups, heroById, positions, baseWinrates, allies, synergy, me, bans, laneInputFor]);
+
   // Auto-recompute (§9): local scoring is fast, no request gate needed.
   const results = useMemo(() => {
     const scoreAllies = allies.length > 0 && !!synergy;
@@ -315,15 +324,18 @@ export function useDraftData() {
     if (allies.length > 0 && synergyLoading) return null;
     const lanes = position === 'all' ? LANES : [position];
     const out = new Map<Exclude<PositionFilter, 'all'>, CandidateScore[]>();
-    for (const lane of lanes) {
-      out.set(lane, scoreCandidates({
-        heroes, enemyIds: enemies, matchupByEnemy: matchups, heroById, positions, baseWinrates,
-        allyIds: allies, synergyByAlly: synergy, excludeIds: me ? [...bans, me] : bans,
-        lane: laneInputFor(lane),
-      }, lane));
-    }
+    for (const lane of lanes) out.set(lane, scoreCandidates(scoreInputFor(lane), lane));
     return out;
-  }, [enemies, allies, bans, me, position, heroes, matchups, heroById, positions, baseWinrates, synergy, synergyLoading, missingTables.length, rankLoading, laneInputFor]);
+  }, [enemies.length, allies.length, synergy, missingTables.length, rankLoading, synergyLoading, position, scoreInputFor]);
+
+  /** "My pool": the player's heroes against this draft, on the active rank's baselines. */
+  const pool = useMemo(() => (poolProfile ? poolOf(poolProfile, baseWinrates) : null), [poolProfile, baseWinrates]);
+  const poolResults = useMemo(() => {
+    if (!pool || !results) return null;
+    const out = new Map<Exclude<PositionFilter, 'all'>, PoolResult>();
+    for (const [lane, list] of results) out.set(lane, scorePool(scoreInputFor(lane), lane, pool, list));
+    return out;
+  }, [pool, results, scoreInputFor]);
 
   const banSuggestions = useMemo(() => {
     if (!dataset || !hasDraft || rankLoading || synergyLoading) return [];
@@ -412,6 +424,8 @@ export function useDraftData() {
     synergyUnavailable,
     roleStats,
     results,
+    pool,
+    poolResults,
     banSuggestions,
     draftWin,
     draftWinNeedsMe,

@@ -73,6 +73,37 @@ export const APP_CONFIG = {
     banSuggestions: 8,
   },
 
+  // --- Player profile & "My pool" (src/player/poolStats.ts, src/scoring/poolScoring.ts) ---
+  player: {
+    // A hero's personal edge (win rate − the hero's meta win rate on the rank)
+    // is shrunk like a matchup: edge × games / (games + shrinkK), so 3 games
+    // at 100% do not top the list (3 games, +50 pp → 2.8; 100 games, +6 pp →
+    // 4.0). The "strongest" list also needs strongMinGames games.
+    shrinkK: 50,
+    strongMinGames: 5,
+    // In the pool: a hero with this many games all-time, or this many in the
+    // last 90 days. Below lowDataGames in total the thresholds are softened
+    // (lowDataMin) and the results say "little data".
+    minGamesAll: 8,
+    minGames90: 3,
+    lowDataGames: 30,
+    lowDataMin: 2,
+    // Personal comfort in the pool ranking: weight on the shrunk edge (pp),
+    // centred on the player's own average (a 55% player is not "+5 on every
+    // hero"). Deliberately much smaller than the counter part: personal win
+    // rates are noisy (party, role, streaks). pool score = counter score + wComfort × comfort.
+    wComfort: 0.2,
+    // "Comfort" label: this many games and a shrunk edge above comfortEdge pp.
+    comfortGames: 30,
+    comfortEdge: 2,
+    // Pool width: heroes with ≥ widthGames games; narrow / wide thresholds.
+    widthGames: 10,
+    narrowPool: 8,
+    widePool: 20,
+    // A last game older than this many days: the pool is marked as old.
+    staleDays: 30,
+  },
+
   ui: {
     maxEnemies: 5,
     // you are the 5th player

@@ -282,7 +282,7 @@ const RANK_MEDALS: Record<string, [string, string]> = {
   LEGEND_ANCIENT: ['legend', 'ancient'],
   DIVINE_IMMORTAL: ['divine', 'immortal'],
 };
-const medalSrc = (name: string) => `${import.meta.env.BASE_URL}ranks/${name}.png`;
+export const medalSrc = (name: string) => `${import.meta.env.BASE_URL}ranks/${name}.png`;
 
 export function Medals({ id, size = 32 }: { id: string; size?: number }) {
   const medals = RANK_MEDALS[id] ?? ['herald', 'immortal'];
