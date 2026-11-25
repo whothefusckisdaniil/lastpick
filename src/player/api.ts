@@ -1,3 +1,4 @@
+import type { RecentGame } from './poolStats';
 /**
  * Player profile from OpenDota, straight from the browser (CORS is open; the
  * limits are per viewer IP, so the site spends nothing). Four requests in
@@ -120,7 +121,7 @@ export function cachedProfile(id: number): PlayerProfile | null {
 }
 
 export function clearPlayerCache() {
-  try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem('lp.playerRecent'); } catch { /* ignore */ }
 }
 
 /**
@@ -154,4 +155,36 @@ export interface SearchHit { id: number; name: string; avatar: string | null; la
 export async function searchPlayers(q: string, limit = 12): Promise<SearchHit[]> {
   const rows = await get<RawSearchRow[]>(`/search?q=${encodeURIComponent(q)}`);
   return (rows ?? []).slice(0, limit).map((r) => ({ id: r.account_id, name: r.personaname || `#${r.account_id}`, avatar: r.avatarfull || null, lastMatch: r.last_match_time ?? null }));
+}
+
+export interface RawRecentMatch { match_id: number; player_slot: number; radiant_win: boolean; hero_id: number; start_time: number; kills: number; deaths: number; assists: number }
+
+const RECENT_KEY = 'lp.playerRecent';
+
+/** Raw /recentMatches → our games, newest first. Radiant slots are 0–127. */
+export function normalizeRecent(rows: RawRecentMatch[]): RecentGame[] {
+  return (rows ?? [])
+    .map((r) => ({ matchId: r.match_id, heroId: r.hero_id, win: (r.player_slot < 128) === !!r.radiant_win, start: r.start_time, kills: r.kills, deaths: r.deaths, assists: r.assists }))
+    .sort((a, b) => b.start - a.start);
+}
+
+/** The last 20 matches (OpenDota /recentMatches), cached like the profile. */
+export async function fetchRecent(id: number, opts: { fresh?: boolean; now?: number } = {}): Promise<RecentGame[]> {
+  const now = opts.now ?? Date.now();
+  let all: Record<string, { at: number; games: RecentGame[] }> = {};
+  try { all = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '{}'); } catch { /* ignore */ }
+  const hit = all[id];
+  if (hit && !opts.fresh && now - hit.at < PROFILE_TTL_MS) return hit.games;
+  try {
+    const games = normalizeRecent(await get<RawRecentMatch[]>(`/players/${id}/recentMatches`));
+    try {
+      all[id] = { at: now, games };
+      const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, CACHE_MAX);
+      localStorage.setItem(RECENT_KEY, JSON.stringify(Object.fromEntries(keep)));
+    } catch { /* storage full or blocked */ }
+    return games;
+  } catch (e) {
+    if (hit) return hit.games;
+    throw e;
+  }
 }

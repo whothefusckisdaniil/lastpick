@@ -21,6 +21,8 @@ export interface RecapCard {
   rows?: RecapCardRow[];
   /** Ward map: positions 0..1, y up. */
   map?: { wards: { x: number; y: number; radiant: boolean; obs: boolean; dead: boolean; mine?: boolean }[] };
+  /** A player's avatar (Steam CDN, CORS-enabled; a letter when it fails) with an optional rank medal; no src and an empty letter = the medal alone. */
+  avatar?: { src: string | null; letter: string; medal: string | null };
   /** Big kill score: Radiant – Dire, with the length between. */
   score?: { left: number; right: number; mid: string; leftWin: boolean };
   footer: string;
@@ -227,6 +229,48 @@ function rowsBlock(ctx: CanvasRenderingContext2D, imgs: Map<number, HTMLImageEle
   });
 }
 
+function loadCorsImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+/** Round avatar (or its letter) at x, y with a medal on its lower right. */
+function avatarBadge(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null, letter: string, medal: HTMLImageElement | null, x: number, y: number, size: number) {
+  // no avatar and no letter (a hidden nickname): the medal alone
+  if (!img && !letter) {
+    if (medal) ctx.drawImage(medal, x, y, size, size);
+    return;
+  }
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  if (img) {
+    const s = Math.min(img.naturalWidth, img.naturalHeight);
+    ctx.drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, x, y, size, size);
+  } else {
+    ctx.fillStyle = C.s2;
+    ctx.fillRect(x, y, size, size);
+    ctx.fillStyle = C.muted;
+    ctx.font = `700 ${Math.round(size * 0.45)}px ${DISPLAY}`;
+    const w = ctx.measureText(letter).width;
+    ctx.fillText(letter, x + (size - w) / 2, y + size * 0.66);
+  }
+  ctx.restore();
+  ctx.strokeStyle = C.accent;
+  ctx.lineWidth = Math.max(2, size / 40);
+  ctx.beginPath();
+  ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+  ctx.stroke();
+  if (medal) ctx.drawImage(medal, x + size * 0.58, y + size * 0.58, size * 0.56, size * 0.56);
+}
+
 export async function renderRecapCard(format: CardFormat, card: RecapCard): Promise<Blob> {
   const [W, H] = format === 'story' ? [1080, 1920] : [1200, 630];
   const canvas = document.createElement('canvas');
@@ -238,6 +282,9 @@ export async function renderRecapCard(format: CardFormat, card: RecapCard): Prom
   const heroes = [...(card.teams?.top ?? []), ...(card.teams?.bottom ?? []), ...(card.rows ?? []).flatMap((r) => (r.hero ? [r.hero] : []))];
   const imgs = new Map<number, HTMLImageElement | null>();
   await Promise.all(heroes.map(async (h) => { if (!imgs.has(h.id)) imgs.set(h.id, await loadImage(localPortraitUrl(h))); }));
+  const [avatarImg, medalImg] = card.avatar
+    ? await Promise.all([card.avatar.src ? loadCorsImage(card.avatar.src) : Promise.resolve(null), card.avatar.medal ? loadImage(card.avatar.medal) : Promise.resolve(null)])
+    : [null, null];
 
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, W, H);
@@ -251,6 +298,7 @@ export async function renderRecapCard(format: CardFormat, card: RecapCard): Prom
     const M = 80;
     const CW = W - M * 2;
     logo(ctx, M, 236, 46);
+    if (card.avatar) avatarBadge(ctx, avatarImg, card.avatar.letter, medalImg, W - M - 170, 150, 170);
     kicker(ctx, card.kicker, M, 380, 30, CW);
     let y = 456 + headline(ctx, card.title, M, 456, CW, [58, 50, 44], 3) + 6;
     if (card.subtitle) {
@@ -296,6 +344,7 @@ export async function renderRecapCard(format: CardFormat, card: RecapCard): Prom
   } else {
     const M = 56;
     logo(ctx, M, 52, 30);
+    if (card.avatar) avatarBadge(ctx, avatarImg, card.avatar.letter, medalImg, M + 520 - 96, 28, 96);
     kicker(ctx, card.kicker, M, 150, 18, 520);
     const th = headline(ctx, card.title, M, 200, 520, [34, 30, 26], 4);
     let ly = 200 + th + 4;

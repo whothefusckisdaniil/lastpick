@@ -30,6 +30,8 @@ export interface PoolResult {
   list: PoolCandidate[];
   /** The best hero overall (any hero), for the comparison line. */
   bestOverall: CandidateScore | null;
+  /** Pool heroes this draft is worst for (negative pool score, worst first), outside the top 5. */
+  avoid: PoolCandidate[];
 }
 
 export function scorePool(input: ScoreInput, lane: Lane, pool: Pool, overall?: CandidateScore[] | null): PoolResult {
@@ -42,5 +44,6 @@ export function scorePool(input: ScoreInput, lane: Lane, pool: Pool, overall?: C
     return { c, stat, comfort: cf, comfortPoints: w * cf, score: c.finalScore + w * cf };
   }).sort((a, b) => b.score - a.score);
   const best = overall === undefined ? scoreCandidates(input, lane)[0] ?? null : overall?.[0] ?? null;
-  return { list, bestOverall: best };
+  const avoid = list.slice(5).filter((x) => x.score < 0).reverse().slice(0, APP_CONFIG.player.avoidCount);
+  return { list, bestOverall: best, avoid };
 }

@@ -102,3 +102,31 @@ export function poolWidth(profile: PlayerProfile): { heroes: number; top3Share: 
 export function daysSince(unixSec: number | null, now = Date.now()): number | null {
   return unixSec ? Math.max(0, Math.floor((now - unixSec * 1000) / 86_400_000)) : null;
 }
+
+export type HeroLabel = 'comfort' | 'gem' | 'under' | 'meta';
+
+/** Labels of one hero (see APP_CONFIG.player for the thresholds). */
+export function heroLabels(s: HeroStat): HeroLabel[] {
+  const c = APP_CONFIG.player;
+  if (s.meta == null) return [];
+  const out: HeroLabel[] = [];
+  if (s.games >= c.comfortGames && s.score >= c.comfortEdge) out.push('comfort');
+  if (s.games >= c.gemMinGames && s.games <= c.gemMaxGames && s.edge >= c.gemEdge) out.push('gem');
+  if (s.games >= c.underGames && s.score <= c.underEdge) out.push('under');
+  if (s.score >= c.metaEdge && s.meta >= c.metaWinrate) out.push('meta');
+  return out;
+}
+
+export interface RecentGame { matchId: number; heroId: number; win: boolean; start: number; kills: number; deaths: number; assists: number }
+
+/** Last games, newest first: wins, losses and the current streak (positive = wins). */
+export function form(games: RecentGame[]): { wins: number; losses: number; streak: number } {
+  const wins = games.filter((g) => g.win).length;
+  let streak = 0;
+  for (const g of games) {
+    if (streak === 0) streak = g.win ? 1 : -1;
+    else if (g.win === streak > 0) streak += streak > 0 ? 1 : -1;
+    else break;
+  }
+  return { wins, losses: games.length - wins, streak };
+}

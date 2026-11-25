@@ -96,6 +96,20 @@ export const APP_CONFIG = {
     // "Comfort" label: this many games and a shrunk edge above comfortEdge pp.
     comfortGames: 30,
     comfortEdge: 2,
+    // Labels (formulas, not opinions):
+    //   comfort  — ≥ comfortGames games and shrunk edge ≥ comfortEdge pp;
+    //   gem      — gemMinGames..gemMaxGames games, raw edge ≥ gemEdge pp ("little data");
+    //   under    — ≥ underGames games and shrunk edge ≤ underEdge pp (neutral wording);
+    //   meta     — shrunk edge ≥ metaEdge and the hero's meta win rate ≥ metaWinrate % on the rank.
+    gemMinGames: 5,
+    gemMaxGames: 15,
+    gemEdge: 10,
+    underGames: 30,
+    underEdge: -2,
+    metaWinrate: 52,
+    metaEdge: 1,
+    // "Better avoid" in the pool: at most this many heroes with a negative pool score.
+    avoidCount: 3,
     // Pool width: heroes with ≥ widthGames games; narrow / wide thresholds.
     widthGames: 10,
     narrowPool: 8,

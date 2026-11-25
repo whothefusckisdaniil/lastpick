@@ -409,6 +409,7 @@ export default function App() {
                         profile={me.profile}
                         lowData={d.pool.lowData}
                         summary={d.position === 'all'}
+                        roles={me.roles}
                         onViewDetails={(candidate, lane) => setDetails({ c: candidate, lane })}
                         onOff={() => setPoolOn(false)}
                       />

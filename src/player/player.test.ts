@@ -4,6 +4,7 @@ import heroesRaw from '../../public/data/heroes.json';
 import positionsRaw from '../../public/data/positions.json';
 import openFx from './fixtures/open.json';
 import closedFx from './fixtures/closed.json';
+import recentFx from './fixtures/recent.json';
 import type { Hero, MatchupRow, PositionDataset } from '../types';
 import { computeBaseWinrates } from '../scoring/baseline';
 import { scoreCandidates } from '../scoring/engine';
@@ -11,8 +12,8 @@ import { scorePool } from '../scoring/poolScoring';
 import { APP_CONFIG } from '../config';
 import { parsePlayerInput, steam64ToId } from './parseId';
 import { rankInfo } from './rankBracket';
-import { cachedProfile, clearPlayerCache, fetchProfile, normalizeProfile, PlayerError, PROFILE_TTL_MS, type RawHeroRow, type RawPlayer } from './api';
-import { comfort, daysSince, heroStats, poolOf, poolWidth, shrink, sortHeroes } from './poolStats';
+import { cachedProfile, clearPlayerCache, fetchProfile, normalizeProfile, normalizeRecent, PlayerError, PROFILE_TTL_MS, type RawHeroRow, type RawPlayer, type RawRecentMatch } from './api';
+import { comfort, daysSince, form, heroLabels, heroStats, poolOf, poolWidth, shrink, sortHeroes } from './poolStats';
 
 const heroes = heroesRaw as unknown as Hero[];
 const tables = matchupsRaw as unknown as Record<string, MatchupRow[]>;
@@ -184,7 +185,8 @@ describe('pool stats', () => {
 describe('pool scoring', () => {
   const p = profileOf(open);
   const pool = poolOf(p, base);
-  const enemyIds = [13, 7, 74, 11, 42].filter((id) => !pool.heroes.has(id));
+  // enemies the player does not have in the pool (else they would be filtered out of the draft)
+  const enemyIds = heroes.map((h) => h.id).filter((id) => !pool.heroes.has(id)).slice(0, 5);
   const input = { heroes, enemyIds, matchupByEnemy: new Map(enemyIds.map((e) => [e, tables[String(e)]])), positions, heroById: new Map(heroes.map((h) => [h.id, h])), baseWinrates: base };
 
   it('only pool heroes, every eligible one (no top-15 cut), ordered by counter + comfort', () => {
@@ -198,10 +200,63 @@ describe('pool scoring', () => {
       for (const x of r.list) expect(x.c.finalScore).toBeCloseTo(all.find((c) => c.hero.id === x.c.hero.id)!.finalScore, 9);
       if (r.bestOverall && r.list[0]) expect(r.bestOverall.finalScore).toBeGreaterThanOrEqual(r.list[0].c.finalScore);
     }
+    expect(enemyIds).toHaveLength(5);
+    expect((['1', '2', '3', '4', '5'] as const).reduce((n, lane) => n + scorePool(input, lane, pool).list.length, 0)).toBeGreaterThan(10);
   });
 
   it('the personal part stays small next to the counter part', () => {
     const r = scorePool(input, '2', pool);
     for (const x of r.list) expect(Math.abs(x.comfortPoints)).toBeLessThan(3);
+  });
+});
+
+describe('v2: labels, form, avoid', () => {
+  const p = profileOf(open);
+
+  it('labels follow the thresholds', () => {
+    const c = APP_CONFIG.player;
+    const s = { heroId: 1, games: 100, win: 60, winrate: 60, meta: 50, edge: 10, score: shrink(10, 100), games90: 0, winrate90: null, lastPlayed: 0 };
+    expect(heroLabels(s)).toContain('comfort');
+    expect(heroLabels({ ...s, meta: c.metaWinrate + 1, winrate: c.metaWinrate + 11 })).toContain('meta');
+    expect(heroLabels({ ...s, games: 8, edge: 25, score: shrink(25, 8) })).toContain('gem');
+    expect(heroLabels({ ...s, winrate: 44, edge: -6, score: shrink(-6, 100) })).toEqual(['under']);
+    expect(heroLabels({ ...s, meta: null })).toEqual([]);
+    // labels on real data: a hero is never both comfort and below the meta
+    for (const x of heroStats(p, base)) {
+      const l = heroLabels(x);
+      expect(l.includes('comfort') && l.includes('under')).toBe(false);
+    }
+  });
+
+  it('recent matches: win from the slot side, newest first; form and streak', () => {
+    const games = normalizeRecent(recentFx as unknown as RawRecentMatch[]);
+    expect(games).toHaveLength(20);
+    for (let i = 1; i < games.length; i++) expect(games[i - 1].start).toBeGreaterThanOrEqual(games[i].start);
+    const raw = recentFx[0] as RawRecentMatch;
+    expect(normalizeRecent([{ ...raw, player_slot: 2, radiant_win: true }])[0].win).toBe(true);
+    expect(normalizeRecent([{ ...raw, player_slot: 130, radiant_win: true }])[0].win).toBe(false);
+    const f = form(games);
+    expect(f.wins + f.losses).toBe(20);
+    const g = (win: boolean) => ({ matchId: 0, heroId: 1, win, start: 0, kills: 0, deaths: 0, assists: 0 });
+    expect(form([g(true), g(true), g(true), g(false)]).streak).toBe(3);
+    expect(form([g(false), g(false), g(true)]).streak).toBe(-2);
+    expect(form([]).streak).toBe(0);
+  });
+
+  it('"better avoid": negative pool scores outside the top 5, worst first', () => {
+    const pool = poolOf(p, base);
+    // enemies the player does not have in the pool (else they would be filtered out of the draft)
+  const enemyIds = heroes.map((h) => h.id).filter((id) => !pool.heroes.has(id)).slice(0, 5);
+    const input = { heroes, enemyIds, matchupByEnemy: new Map(enemyIds.map((e) => [e, tables[String(e)]])), positions, heroById: new Map(heroes.map((h) => [h.id, h])), baseWinrates: base };
+    let seen = 0;
+    for (const lane of ['1', '2', '3', '4', '5'] as const) {
+      const r = scorePool(input, lane, pool);
+      const top5 = new Set(r.list.slice(0, 5).map((x) => x.c.hero.id));
+      expect(r.avoid.length).toBeLessThanOrEqual(APP_CONFIG.player.avoidCount);
+      for (const x of r.avoid) { expect(x.score).toBeLessThan(0); expect(top5.has(x.c.hero.id)).toBe(false); }
+      for (let i = 1; i < r.avoid.length; i++) expect(r.avoid[i - 1].score).toBeLessThanOrEqual(r.avoid[i].score);
+      seen += r.avoid.length;
+    }
+    expect(seen).toBeGreaterThan(0);
   });
 });

@@ -4,10 +4,12 @@ import type { StringKey } from '../../i18n/strings';
 import type { Hero } from '../../types';
 import { loadBracketTables, loadDataset, type Dataset } from '../../data/dataset';
 import { parsePlayerInput } from '../../player/parseId';
-import { fetchProfile, PlayerError, searchPlayers, type PlayerErrorKind, type PlayerProfile, type SearchHit } from '../../player/api';
+import { fetchProfile, fetchRecent, PlayerError, searchPlayers, type PlayerErrorKind, type PlayerProfile, type SearchHit } from '../../player/api';
 import { rankInfo } from '../../player/rankBracket';
-import { daysSince, heroStats, overallWinrate, poolOf, poolWidth, sortHeroes, type HeroSort, type HeroStat } from '../../player/poolStats';
-import { setMe, setPoolOn, useMe } from '../../player/usePlayer';
+import { daysSince, form, heroLabels, heroStats, overallWinrate, poolOf, poolWidth, sortHeroes, type HeroLabel, type HeroSort, type HeroStat, type RecentGame } from '../../player/poolStats';
+import { setMe, setPoolOn, setRoles, useMe, type Role } from '../../player/usePlayer';
+import { deliverImages, renderRecapCard, type RecapCard } from '../../share/matchCards';
+import type { CardFormat } from '../../share/shareCard';
 import { APP_CONFIG } from '../../config';
 import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
@@ -30,6 +32,36 @@ const urlPlayer = (): number | null => {
 
 const pct = (v: number) => Math.round(v);
 
+const LABEL_TONE: Record<HeroLabel, string> = { comfort: 'badge-pos', gem: 'badge-warn', under: 'badge-neg', meta: 'badge-pos' };
+
+/** Last 20 matches: a strip of hero portraits, green = win, red = loss (newest first). */
+function FormStrip({ games, heroById }: { games: RecentGame[]; heroById: Map<number, Hero> | undefined }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const f = form(games);
+  return (
+    <>
+      <p className="tnum text-[13px] text-muted">
+        <span className="text-ink">{t('profile.form.text', { w: f.wins, l: f.losses, n: games.length })}</span>
+        {Math.abs(f.streak) >= 2 && <span className={f.streak > 0 ? 'text-pos' : 'text-neg'}> · {t(f.streak > 0 ? 'profile.form.streakWin' : 'profile.form.streakLoss', { n: Math.abs(f.streak) })}</span>}
+      </p>
+      <ol className="mt-2 flex flex-wrap gap-1" aria-label={t('profile.form.title')}>
+        {games.map((g) => {
+          const h = heroById?.get(g.heroId);
+          const label = `${h ? i18n.heroName(h) : `#${g.heroId}`}: ${t(g.win ? 'profile.form.win' : 'profile.form.loss')} ${g.kills}/${g.deaths}/${g.assists}`;
+          return (
+            <li key={g.matchId} title={label} aria-label={label}>
+              <a href={`/?match=${g.matchId}`} className={`block h-9 w-9 overflow-hidden rounded-md border-b-[3px] ${g.win ? 'border-pos' : 'border-neg opacity-80'}`}>
+                {h && <HeroPortrait hero={h} fill />}
+              </a>
+            </li>
+          );
+        })}
+      </ol>
+    </>
+  );
+}
+
 function HeroRow({ s, hero, sort }: { s: HeroStat; hero: Hero | undefined; sort: HeroSort }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -37,6 +69,7 @@ function HeroRow({ s, hero, sort }: { s: HeroStat; hero: Hero | undefined; sort:
   const sub = sort === 'recent' && s.winrate90 != null ? t('profile.recentRow', { wr: pct(s.winrate90) })
     : sort === 'rising' && s.winrate90 != null ? t('profile.risingRow', { now: pct(s.winrate90), all: pct(s.winrate) })
       : s.meta != null ? t('profile.vsMeta', { you: pct(s.winrate), meta: pct(s.meta) }) : `${pct(s.winrate)}%`;
+  const labels = heroLabels(s);
   const edge = sort === 'rising' && s.winrate90 != null ? s.winrate90 - s.winrate : sort === 'recent' && s.winrate90 != null && s.meta != null ? s.winrate90 - s.meta : s.edge;
   return (
     <li className="panel-2 flex items-center gap-3 px-2.5 py-2">
@@ -44,6 +77,11 @@ function HeroRow({ s, hero, sort }: { s: HeroStat; hero: Hero | undefined; sort:
       <div className="min-w-0 flex-1">
         <div className="truncate text-[14px] font-semibold text-ink">{hero ? i18n.heroName(hero) : `#${s.heroId}`}</div>
         <div className="tnum truncate text-[12px] text-muted">{sub}</div>
+        {labels.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {labels.map((l) => <span key={l} className={`badge ${LABEL_TONE[l]} !py-0 !text-[10px]`} title={t(`label.hint.${l}` as StringKey)}>{t(`label.${l}` as StringKey)}</span>)}
+          </div>
+        )}
       </div>
       <div className="flex-none text-right">
         <div className={`tnum text-[14px] font-bold ${edge > 0.5 ? 'text-pos' : edge < -0.5 ? 'text-neg' : 'text-muted'}`}>{edge > 0 ? '+' : edge < 0 ? '−' : ''}{Math.abs(edge).toFixed(1)}</div>
@@ -71,6 +109,9 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   const [nonce, setNonce] = useState(0);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [meta, setMeta] = useState<{ base: Map<number, number>; rank: string } | null>(null);
+  const [recent, setRecent] = useState<{ kind: 'loading' } | { kind: 'ready'; games: RecentGame[] } | { kind: 'error' } | null>(null);
+  const [hideName, setHideName] = useState(false);
+  const [share, setShare] = useState<'idle' | 'making' | 'failed' | 'copied' | 'warnMe' | 'copiedMe'>('idle');
 
   useEffect(() => { loadDataset().then(setDataset).catch(() => setDataset(null)); }, []);
   useEffect(() => { document.title = `${t('profile.title')} — LASTPICK`; }, [t]);
@@ -87,6 +128,17 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
 
   const profile = load.kind === 'ready' ? load.profile : null;
   const rank = rankInfo(profile?.rankTier);
+
+  // form: the last 20 matches, once the profile is open
+  useEffect(() => {
+    if (!profile || profile.hidden) { setRecent(null); return; }
+    let alive = true;
+    setRecent({ kind: 'loading' });
+    fetchRecent(profile.id, { fresh: nonce > 0 })
+      .then((games) => alive && setRecent({ kind: 'ready', games }))
+      .catch(() => alive && setRecent({ kind: 'error' }));
+    return () => { alive = false; };
+  }, [profile, nonce]);
 
   // meta win rates: the player's rank group, else all ranks
   useEffect(() => {
@@ -127,6 +179,55 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     setMe(profile.id, profile);
     // the rank selector follows the profile (it can still be changed by hand)
     if (rank && rankOptions.includes(rank.bracket)) onRank(rank.bracket);
+  }
+
+  /** The share card: rank, top 3 strongest heroes, pool width, form. */
+  function card(): RecapCard {
+    const p = profile!;
+    const record = p.hidden ? '' : ` · ${p.win}–${p.lose}`;
+    const top = sortHeroes(stats, 'strong').slice(0, 3);
+    const top3 = top.length ? top : sortHeroes(stats, 'games').slice(0, 3);
+    const rows: RecapCard['rows'] = top3.map((x) => {
+      const h = dataset?.heroById.get(x.heroId);
+      const lb = heroLabels(x)[0];
+      return {
+        hero: h, title: `${h ? i18n.heroName(h) : `#${x.heroId}`}${lb ? ` · ${t(`label.${lb}` as StringKey)}` : ''}`,
+        sub: t('card.profile.hero', { g: `${x.games} ${i18n.plural(x.games, 'game')}`, wr: pct(x.winrate), meta: x.meta != null ? pct(x.meta) : '—' }),
+        value: `${x.edge > 0 ? '+' : x.edge < 0 ? '−' : ''}${Math.abs(x.edge).toFixed(1)}`, tone: x.edge > 0.5 ? 'pos' : x.edge < -0.5 ? 'neg' : 'muted',
+      };
+    });
+    if (width && width.heroes > 0) rows.push({ title: t(`profile.width.${width.label}` as StringKey), sub: t('profile.width.text', { n: width.heroes, share: Math.round(width.top3Share * 100) }) });
+    if (recent?.kind === 'ready' && recent.games.length) {
+      const f = form(recent.games);
+      rows.push({ title: t('card.profile.form'), sub: t('profile.form.text', { w: f.wins, l: f.losses, n: recent.games.length }), value: `${f.wins}–${f.losses}`, tone: f.wins >= f.losses ? 'pos' : 'neg' });
+    }
+    return {
+      kicker: t('card.profile.kicker'),
+      title: hideName ? t('card.profile.anon') : p.name,
+      subtitle: t('card.profile.sub', { rank: rank ? `${t(`medal.${rank.medal}` as StringKey)}${rank.stars ? ` ${rank.stars}` : ''}` : t('rank.all'), record, wr: wr != null ? wr.toFixed(1) : '—' }),
+      avatar: { src: hideName ? null : p.avatar, letter: hideName ? '' : (p.name.trim()[0] ?? '?').toUpperCase(), medal: rank ? medalSrc(rank.medal) : null },
+      rows,
+      footer: t('card.profile.footer'),
+      site: window.location.host,
+      notAffiliated: t('app.notAffiliated'),
+    };
+  }
+
+  async function exportCard(format: CardFormat) {
+    if (!profile) return;
+    setShare('making');
+    try {
+      const blob = await renderRecapCard(format, card());
+      await deliverImages([new File([blob], `lastpick-profile-${format}.png`, { type: 'image/png' })], `${window.location.origin}/`);
+      setShare('idle');
+    } catch (e) {
+      console.error(e);
+      setShare('failed');
+    }
+  }
+
+  async function copy(text: string, ok: 'copied' | 'copiedMe') {
+    try { await navigator.clipboard.writeText(text); setShare(ok); } catch { setShare('failed'); }
   }
 
   const days = daysSince(profile?.lastPlayed ?? null);
@@ -238,6 +339,33 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                 </section>
               )}
 
+              {isMe && (
+                <section className="panel p-4 sm:p-5">
+                  <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.roles.title')}</h3>
+                  <p className="mt-1 text-[13px] leading-[18px] text-muted">{t('profile.roles.text')}</p>
+                  <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label={t('profile.roles.title')}>
+                    {(['1', '2', '3', '4', '5'] as Role[]).map((r) => {
+                      const on = me.roles.includes(r);
+                      return (
+                        <button key={r} type="button" aria-pressed={on} onClick={() => setRoles(on ? me.roles.filter((x) => x !== r) : [...me.roles, r])}
+                          className={`btn btn-sm ${on ? 'btn-accent' : 'btn-ghost'}`}>
+                          {r} · {t(`lane.${r}` as StringKey)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              <section className="panel p-4 sm:p-5">
+                <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.form.title')}</h3>
+                <div className="mt-2">
+                  {recent?.kind === 'loading' && <p className="text-[13px] text-muted">{t('profile.form.loading')}</p>}
+                  {recent?.kind === 'error' && <p className="text-[13px] text-muted">{t('profile.form.error')}</p>}
+                  {recent?.kind === 'ready' && (recent.games.length ? <FormStrip games={recent.games} heroById={dataset?.heroById} /> : <p className="text-[13px] text-muted">{t('profile.form.none')}</p>)}
+                </div>
+              </section>
+
               <section className="panel p-4 sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.heroes')}</h3>
@@ -255,7 +383,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                     {sorted.map((s) => <HeroRow key={s.heroId} s={s} hero={dataset?.heroById.get(s.heroId)} sort={sort} />)}
                   </ul>
                 )}
-                {meta && <p className="mt-3 text-[11px] leading-[14px] text-muted">{t('profile.meta', { rank: meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey) })}</p>}
+                {meta && <p className="mt-3 text-[11px] leading-[14px] text-muted">{t('profile.meta', { rank: meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey) })} {t('profile.labelsNote')}</p>}
               </section>
 
               {width && width.heroes > 0 && (
@@ -265,6 +393,32 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   <p className="tnum mt-1 text-[13px] text-muted">{t('profile.width.text', { n: width.heroes, share: Math.round(width.top3Share * 100) })}</p>
                 </section>
               )}
+
+              <section className="panel p-4 sm:p-5">
+                <h3 className="font-display text-[16px] font-bold text-ink">{t('profile.share.title')}</h3>
+                <p className="mt-1 text-[13px] leading-[18px] text-muted">{t('profile.share.text')}</p>
+                <label className="mt-3 flex cursor-pointer items-center gap-2 text-[13px] text-ink">
+                  <input type="checkbox" checked={hideName} onChange={(e) => setHideName(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
+                  {t('profile.share.hideName')}
+                </label>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" disabled={share === 'making' || !meta} onClick={() => exportCard('story')} className="btn btn-accent btn-sm">{t('profile.share.story')}</button>
+                  <button type="button" disabled={share === 'making' || !meta} onClick={() => exportCard('post')} className="btn btn-ghost btn-sm">{t('profile.share.post')}</button>
+                  <button type="button" onClick={() => copy(`${window.location.origin}/${i18n.lang === 'ru' ? '?lang=ru' : ''}`, 'copied')} className="btn btn-ghost btn-sm">{t('profile.share.link')}</button>
+                  <button type="button" onClick={() => setShare('warnMe')} className="btn btn-ghost btn-sm">{t('profile.share.linkMe')}</button>
+                </div>
+                <div aria-live="polite">
+                  {share === 'making' && <p className="mt-2 text-[13px] text-muted">{t('profile.share.making')}</p>}
+                  {share === 'failed' && <p className="mt-2 text-[13px] text-neg">{t('profile.share.failed')}</p>}
+                  {(share === 'copied' || share === 'copiedMe') && <p className="mt-2 text-[13px] text-accent">{t('profile.share.copied')}</p>}
+                  {share === 'warnMe' && (
+                    <div className="notice mt-3 flex-col !items-start gap-2">
+                      <span className="text-ink">{t('profile.share.linkMeWarn')}</span>
+                      <button type="button" onClick={() => copy(`${window.location.origin}/?player=${profile.id}${i18n.lang === 'ru' ? '&lang=ru' : ''}`, 'copiedMe')} className="btn btn-accent btn-sm">{t('profile.share.linkMe')}</button>
+                    </div>
+                  )}
+                </div>
+              </section>
             </>
           )}
           <p className="text-[11px] leading-[14px] text-muted">

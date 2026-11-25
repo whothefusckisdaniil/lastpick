@@ -87,12 +87,14 @@ function VsOverall({ r }: { r: PoolResult }) {
  * the top 5 with the comparison line (one role). A role with no pool hero
  * falls back to the best heroes overall.
  */
-export function PoolResults({ results, overall, profile, lowData, summary, onViewDetails, onOff }: {
+export function PoolResults({ results, overall, profile, lowData, summary, roles = [], onViewDetails, onOff }: {
   results: Map<Lane, PoolResult>;
   overall: Map<Lane, CandidateScore[]> | null;
   profile: PlayerProfile;
   lowData: boolean;
   summary: boolean;
+  /** "My roles": with all roles, only these are shown (empty = all). */
+  roles?: string[];
   onViewDetails: (c: CandidateScore, lane: Lane) => void;
   onOff: () => void;
 }) {
@@ -101,6 +103,8 @@ export function PoolResults({ results, overall, profile, lowData, summary, onVie
   const r = rankInfo(profile.rankTier);
   const days = daysSince(profile.lastPlayed);
   const title = (lane: Lane) => t(`lane.${lane}` as StringKey);
+  const entries = [...results.entries()];
+  const shown = summary && roles.length ? entries.filter(([lane]) => roles.includes(lane)) : entries;
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-[13px] text-muted">
@@ -112,9 +116,12 @@ export function PoolResults({ results, overall, profile, lowData, summary, onVie
         <button type="button" onClick={onOff} className="btn btn-ghost btn-sm !min-h-[28px] ml-auto">{t('pool.off')}</button>
       </div>
 
+      {summary && roles.length > 0 && shown.length < entries.length && (
+        <p className="mb-2 text-[12px] text-muted">{t('pool.rolesOnly', { roles: roles.map((r) => title(r as Lane)).join(', ') })}</p>
+      )}
       {summary ? (
         <div className="stagger grid gap-2">
-          {[...results.entries()].map(([lane, res], i) => {
+          {shown.map(([lane, res], i) => {
             const top = res.list[0];
             if (top) return <div key={lane} style={{ '--i': i } as React.CSSProperties}><PoolRow x={top} tag={title(lane)} lowData={lowData} onOpen={() => onViewDetails(top.c, lane)} /></div>;
             const best = overall?.get(lane)?.[0];
@@ -150,6 +157,15 @@ export function PoolResults({ results, overall, profile, lowData, summary, onVie
                   ))}
                 </div>
                 <VsOverall r={res} />
+                {res.avoid.length > 0 && (
+                  <div className="mt-5">
+                    <h3 className="label">{t('pool.avoid')}</h3>
+                    <p className="mb-2 mt-0.5 text-[12px] text-muted">{t('pool.avoidHint')}</p>
+                    <div className="grid gap-2">
+                      {res.avoid.map((x) => <PoolRow key={x.c.hero.id} x={x} lowData={lowData} onOpen={() => onViewDetails(x.c, lane)} />)}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </section>
