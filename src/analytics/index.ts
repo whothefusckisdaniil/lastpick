@@ -17,10 +17,20 @@ export { analyticsUrl, beforeSend, resetAnalyticsState } from './vercel';
 
 let providers: AnalyticsProvider[] | null = null;
 
+/**
+ * LASTPICK's PostHog project (US cloud). The project key is public by design
+ * (it only allows sending events) and ships in the bundle either way;
+ * VITE_POSTHOG_KEY / VITE_POSTHOG_HOST override it, e.g. for a staging project.
+ */
+const POSTHOG_KEY = 'phc_uQFzmhSSfAd98WaZfGNivqsmnKYmNL2Et7yVptpFSCu5';
+const POSTHOG_HOST = 'https://us.i.posthog.com';
+
 function defaultProviders(): AnalyticsProvider[] {
   const env = import.meta.env;
   const list: AnalyticsProvider[] = [];
-  if (env.PROD && env.VITE_POSTHOG_KEY) list.push(posthogProvider(env.VITE_POSTHOG_KEY, env.VITE_POSTHOG_HOST || undefined));
+  // the live site only: dev servers and local `vite preview` never pollute the numbers
+  const local = typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)$/.test(location.hostname);
+  if (env.PROD && !local) list.push(posthogProvider(env.VITE_POSTHOG_KEY || POSTHOG_KEY, env.VITE_POSTHOG_HOST || POSTHOG_HOST));
   if (env.DEV && env.MODE !== 'test') list.push({ name: 'console', track: (e, p) => console.debug('[analytics]', e, p) });
   return list;
 }
