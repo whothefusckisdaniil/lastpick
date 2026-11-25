@@ -220,9 +220,7 @@ body {
     overflow-x: auto;
     border-radius: 16px;
     border: 1px solid var(--color-line);
-    background: color-mix(in srgb, var(--color-surface) 72%, transparent);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    background: color-mix(in srgb, var(--color-surface) 90%, transparent);
   }
   .tabs-ind {
     position: absolute;
@@ -253,10 +251,8 @@ body {
 
   /* frosted glass: only over something worth blurring (the background glow, a hero header) */
   .glass {
-    background: linear-gradient(150deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015) 55%), color-mix(in srgb, var(--color-surface) 70%, transparent);
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015) 55%), color-mix(in srgb, var(--color-surface) 88%, transparent);
     border-color: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(18px) saturate(150%);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 20px 50px -30px rgba(0, 0, 0, 0.8);
   }
   .profile-glow {
@@ -812,4 +808,125 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .bg-fx > * { animation: none !important; }
   .bg-spark { display: none; }
+}
+
+/* ---------- polish: glass over the background glow, depth and motion ----------
+   Blur only on a few large surfaces (panels, header, sheets, chips); lists stay
+   translucent without blur so long result lists scroll smoothly on phones. */
+@layer components {
+  .panel {
+    background:
+      linear-gradient(160deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 42%),
+      color-mix(in srgb, var(--color-surface) 94%, transparent);
+    border-color: rgba(255, 255, 255, 0.07);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 48px -32px rgba(0, 0, 0, 0.9);
+  }
+
+  /* sticky only from 768 px: on phones the draft strip is the sticky bar */
+  @media (min-width: 768px) {
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      margin: 0 -24px;
+      padding: 0 24px;
+      background: linear-gradient(to bottom, rgba(9, 11, 15, 0.82), rgba(9, 11, 15, 0.55));
+      border-bottom: 1px solid transparent;
+      transition: border-color 200ms ease-out, box-shadow 200ms ease-out;
+    }
+  }
+  .site-header[data-scrolled="true"] { border-bottom-color: rgba(255, 255, 255, 0.06); box-shadow: 0 10px 30px -20px rgba(0, 0, 0, 0.9); }
+
+  .chip {
+    background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  }
+  .sheet, .side-panel {
+    background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  }
+  .notice {
+    background: color-mix(in srgb, var(--color-surface) 75%, transparent);
+    border-color: rgba(255, 255, 255, 0.07);
+  }
+
+  /* buttons: a warm gradient that glows on hover */
+  .btn-accent {
+    background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 18px -8px rgba(255, 180, 58, 0.6);
+  }
+  .btn-accent:hover {
+    background: linear-gradient(180deg, #FFD37A, var(--color-accent-2));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 10px 26px -8px rgba(255, 180, 58, 0.75);
+  }
+  .btn-ghost { background: rgba(255, 255, 255, 0.015); }
+
+  /* results: translucent, lift on hover */
+  .result-row {
+    background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+    border-color: rgba(255, 255, 255, 0.06);
+    transition: background-color 180ms ease-out, border-color 180ms ease-out, transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+  }
+  .result-row:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: rgba(255, 180, 58, 0.35);
+    box-shadow: 0 12px 28px -18px rgba(255, 180, 58, 0.45);
+  }
+  .result-row:active:not(:disabled) { transform: translateY(0) scale(0.995); }
+
+  .best-card {
+    background:
+      radial-gradient(120% 90% at 0% 0%, rgba(255, 180, 58, 0.10), transparent 55%),
+      color-mix(in srgb, var(--color-surface) 82%, transparent);
+    border-color: rgba(255, 180, 58, 0.22);
+    box-shadow: 0 24px 60px -36px rgba(255, 180, 58, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  /* one light sweep when the best pick appears */
+  .best-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.08) 50%, transparent 65%);
+    transform: translateX(-100%);
+    animation: sweep 1100ms 250ms var(--ease-out) both;
+    pointer-events: none;
+  }
+
+  .hero-tile { transition: transform 180ms var(--ease-out), box-shadow 160ms ease-out, opacity 160ms ease-out; }
+  .hero-tile:hover:not(:disabled) { transform: translateY(-2px) scale(1.03); box-shadow: 0 0 0 2px var(--color-accent), 0 10px 22px -10px rgba(255, 180, 58, 0.55); }
+
+  .stat-tile { transition: border-color 200ms ease-out, transform 220ms var(--ease-out); }
+  .stat-tile:hover { border-color: var(--color-line-2); }
+
+  .panel-2 { transition: border-color 160ms ease-out, background-color 160ms ease-out; }
+}
+
+@keyframes sweep { to { transform: translateX(100%); } }
+@keyframes pageIn { from { opacity: 0; transform: translateY(12px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+.page-in { animation: pageIn 420ms var(--ease-out) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .best-card::after { animation: none; display: none; }
+  .page-in { animation: fadeIn 180ms ease-out both; }
+  .result-row:hover:not(:disabled), .hero-tile:hover:not(:disabled) { transform: none; }
+}
+
+/* Real frosted glass only where the GPU can afford it: a blur over the
+   animated background is recomputed every frame, too costly on phones. */
+@media (min-width: 768px) and (hover: hover) {
+  @layer components {
+    .panel {
+      background:
+        linear-gradient(160deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 42%),
+        color-mix(in srgb, var(--color-surface) 76%, transparent);
+      backdrop-filter: blur(16px) saturate(140%);
+      -webkit-backdrop-filter: blur(16px) saturate(140%);
+    }
+    .best-card, .site-header, .chip, .sheet, .side-panel, .glass {
+      backdrop-filter: blur(16px) saturate(150%);
+      -webkit-backdrop-filter: blur(16px) saturate(150%);
+    }
+  }
+  .draft-col, .pool-col { top: 80px !important; max-height: calc(100vh - 96px) !important; }
+}
+@media (min-width: 768px) and (hover: none) {
+  .draft-col, .pool-col { top: 80px !important; max-height: calc(100vh - 96px) !important; }
 }

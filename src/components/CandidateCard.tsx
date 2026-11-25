@@ -1,6 +1,7 @@
 import type { CandidateScore, Hero } from '../types';
 import { HeroPortrait } from './HeroPortrait';
 import { bestWorstAgainst, explainCandidate, useI18n } from '../i18n';
+import { useCountUp } from './ui';
 
 /** Signed score, always with + or − (colour is never the only cue). */
 export function scoreText(v: number): string {
@@ -66,6 +67,7 @@ export function BestCard({ c, lane, heroById, onViewDetails }: {
   const coverage = c.matchups.filter((m) => m.usable).length;
   const { best, worst, goodWith } = bestWorstAgainst(c, i18n, heroById);
   const name = i18n.heroName(c.hero);
+  const shown = useCountUp(c.finalScore);
   return (
     <article className="best-card fade-up p-4 sm:p-5">
       <div className="flex items-start gap-4">
@@ -76,7 +78,7 @@ export function BestCard({ c, lane, heroById, onViewDetails }: {
           <div className="label text-accent">{t('results.best')}</div>
           <h3 className="mt-1 truncate font-display text-[16px] font-bold leading-5 text-ink sm:text-[20px] sm:leading-6">{name}</h3>
           {i18n.heroAltName(c.hero) && <div className="truncate text-[11px] leading-[14px] text-muted">{i18n.heroAltName(c.hero)}</div>}
-          <div className={`tnum mt-1 font-display text-[32px] font-bold leading-[38px] ${scoreTone(c.finalScore)}`}>{scoreText(c.finalScore)}</div>
+          <div className={`tnum mt-1 font-display text-[32px] font-bold leading-[38px] ${scoreTone(c.finalScore)}`} aria-label={scoreText(c.finalScore)}>{scoreText(shown)}</div>
           <div className="text-[11px] leading-[14px] text-muted">{t('legend.scoreShort')}</div>
         </div>
       </div>
