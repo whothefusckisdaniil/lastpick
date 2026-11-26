@@ -375,7 +375,9 @@ const heroGamesInflight = new Map<string, Promise<HeroGame[]>>();
  * The player's last 100 games on a hero in one game mode (Turbo is compared
  * with Turbo, All Pick with All Pick): one request — `significant=0`, or
  * OpenDota would drop non-standard modes — cached in memory and localStorage,
- * concurrent calls share it. Stored compactly as arrays.
+ * concurrent calls share it. Stored compactly as arrays. `fresh` skips both
+ * caches and asks again (the profile's refresh); a failed request still
+ * returns the last copy.
  */
 export async function loadHeroGames(accountId: number, heroId: number, gameMode: number, opts: { now?: number; fresh?: boolean } = {}): Promise<HeroGame[]> {
   const now = opts.now ?? Date.now();
@@ -408,7 +410,9 @@ export async function loadHeroGames(accountId: number, heroId: number, gameMode:
       } catch { /* storage full or blocked */ }
       return games;
     } catch (e) {
-      // an outage: the last copy, however old
+      // an outage (also on a forced refresh): the newest copy we have, however old —
+      // memory first (storage may be blocked), then the stored one
+      if (mem && (!hit || mem.at >= hit.at)) return mem.games;
       if (hit) return unpack(hit.rows);
       throw e;
     } finally {

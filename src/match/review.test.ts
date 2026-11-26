@@ -187,6 +187,50 @@ describe('hero games loader', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('fresh: skips memory and storage and asks again', async () => {
+    await loadHeroGames(1001, 8, 22);
+    expect(calls).toHaveLength(1);
+    await loadHeroGames(1001, 8, 22); // cached
+    expect(calls).toHaveLength(1);
+    vi.stubGlobal('fetch', async (url: string) => { calls.push(url); return new Response(JSON.stringify([row, { ...row, match_id: 2 }]), { status: 200 }); });
+    const fresh = await loadHeroGames(1001, 8, 22, { fresh: true });
+    expect(calls).toHaveLength(2);
+    expect(fresh.map((g) => g.matchId)).toEqual([1, 2]);
+    // the refreshed list replaces the cached one for later normal calls
+    expect((await loadHeroGames(1001, 8, 22)).map((g) => g.matchId)).toEqual([1, 2]);
+    clearHeroGamesMemory();
+    expect((await loadHeroGames(1001, 8, 22)).map((g) => g.matchId)).toEqual([1, 2]);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('fresh: concurrent refreshes still share one request', async () => {
+    await Promise.all([loadHeroGames(1001, 8, 22, { fresh: true }), loadHeroGames(1001, 8, 22, { fresh: true }), loadHeroGames(1001, 8, 22)]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('fresh during an outage: the stored copy instead of an error', async () => {
+    await loadHeroGames(1001, 8, 22);
+    vi.stubGlobal('fetch', async () => new Response('', { status: 522 }));
+    expect(await loadHeroGames(1001, 8, 22, { fresh: true })).toHaveLength(1);
+    clearHeroGamesMemory();
+    expect(await loadHeroGames(1001, 8, 22, { fresh: true })).toHaveLength(1);
+  });
+
+  it('fresh during an outage with storage blocked: the copy in memory', async () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); }, removeItem: () => {} },
+    });
+    await loadHeroGames(1001, 8, 22);
+    vi.stubGlobal('fetch', async () => new Response('', { status: 522 }));
+    expect(await loadHeroGames(1001, 8, 22, { fresh: true })).toHaveLength(1);
+  });
+
+  it('fresh with nothing cached and the service down: the error surfaces', async () => {
+    vi.stubGlobal('fetch', async () => new Response('', { status: 522 }));
+    await expect(loadHeroGames(1001, 8, 22, { fresh: true })).rejects.toThrow();
+  });
+
   it('an outage returns the stored copy', async () => {
     await loadHeroGames(1001, 8, 22, { now: 0 });
     clearHeroGamesMemory();
