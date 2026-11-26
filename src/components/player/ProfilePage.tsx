@@ -4,7 +4,7 @@ import type { StringKey } from '../../i18n/strings';
 import type { Hero } from '../../types';
 import { loadBracketTables, loadDataset, type Dataset } from '../../data/dataset';
 import { parsePlayerInput } from '../../player/parseId';
-import { loadHistory, fetchProfile, fetchRecent, PlayerError, searchPlayers, type PlayerErrorKind, type PlayerProfile, type SearchHit } from '../../player/api';
+import { loadHeroGames, loadHistory, fetchProfile, fetchRecent, PlayerError, searchPlayers, type PlayerErrorKind, type PlayerProfile, type SearchHit } from '../../player/api';
 import { rankInfo } from '../../player/rankBracket';
 import { daysSince, form, heroLabels, heroStats, overallWinrate, poolOf, poolWidth, sortHeroes, type HeroLabel, type HeroSort, type HeroStat, type RecentGame } from '../../player/poolStats';
 import { setMe, setPoolOn, setRoles, useMe, type Role } from '../../player/usePlayer';
@@ -18,6 +18,9 @@ import { Avatar } from './PoolResults';
 import { CompareSection, LearnSection, PatchSection } from './ProfileV3';
 import { WeeklyReviewCard, type WeeklyState } from './WeeklyReviewCard';
 import { weeklyReview } from '../../player/weeklyReview';
+import { ImprovementGoalCard, type GoalProgressState } from '../goals/ImprovementGoalCard';
+import { goalProgress } from '../../goals/calculations';
+import { goalActions, useGoals } from '../../goals/useGoals';
 import { StatTile, Tabs } from '../ui';
 
 import { trackOnce, trackEvent } from '../../analytics';
@@ -149,6 +152,8 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   const [meta, setMeta] = useState<{ base: Map<number, number>; rank: string } | null>(null);
   const [recent, setRecent] = useState<{ kind: 'loading' } | { kind: 'ready'; games: RecentGame[] } | { kind: 'error' } | null>(null);
   const [weekly, setWeekly] = useState<WeeklyState | null>(null);
+  const [goalState, setGoalState] = useState<GoalProgressState | null>(null);
+  const goals = useGoals();
   const [hideName, setHideName] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [share, setShare] = useState<'idle' | 'making' | 'failed' | 'copied' | 'warnMe' | 'copiedMe'>('idle');
@@ -200,6 +205,18 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
       .catch(() => alive && setWeekly({ kind: 'error' }));
     return () => { alive = false; };
   }, [profile, nonce]);
+
+  // the active improvement goal of this player: its hero's games (the match review's own loader and cache)
+  const goal = profile && goals.active?.accountId === profile.id ? goals.active : null;
+  useEffect(() => {
+    if (!goal) { setGoalState(null); return; }
+    let alive = true;
+    setGoalState({ kind: 'loading' });
+    loadHeroGames(goal.accountId, goal.heroId, goal.gameMode, { fresh: nonce > 0 })
+      .then((games) => alive && setGoalState({ kind: 'ready', progress: goalProgress(goal, games) }))
+      .catch(() => alive && setGoalState({ kind: 'error' }));
+    return () => { alive = false; };
+  }, [goal, nonce]);
 
   // meta win rates: the player's rank group, else all ranks
   useEffect(() => {
@@ -408,6 +425,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   <>
               {pool?.lowData && <div className="notice">{t('profile.lowData', { n: profile.win + profile.lose })}</div>}
               {days != null && days > APP_CONFIG.player.staleDays && <div className="notice">{t('profile.oldPool', { n: days })}</div>}
+                    {goal && goalState && <ImprovementGoalCard goal={goal} state={goalState} hero={dataset?.heroById.get(goal.heroId)} onComplete={goalActions.complete} />}
                     {weekly && <WeeklyReviewCard state={weekly} isMe={isMe} heroById={dataset?.heroById} />}
                     <Overview profile={profile} stats={stats} width={width} recent={recent?.kind === 'ready' ? recent.games : null} heroById={dataset?.heroById} onTab={setTab} />
               {isMe && (

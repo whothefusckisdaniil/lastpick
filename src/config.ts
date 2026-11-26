@@ -158,6 +158,15 @@ export const APP_CONFIG = {
     minSideRate: 30,
   },
 
+  // Improvement tracker: progress needs minGames matches after the goal was
+  // started; it is the median of the last `window` of them against the
+  // baseline saved at the start. A change under sameShare (relative) is "about the same".
+  goals: {
+    minGames: 5,
+    window: 20,
+    sameShare: 0.05,
+  },
+
   ui: {
     maxEnemies: 5,
     // you are the 5th player

@@ -25,6 +25,7 @@ import { RecapPlayer } from './RecapPlayer';
 import { MyMatches } from './MyMatches';
 import { MatchReviewCard, type ReviewState } from './MatchReviewCard';
 import { reviewMatch } from '../../match/review';
+import { TrackFocusButton } from '../goals/TrackFocusButton';
 import { loadHeroGames, type HeroGame } from '../../player/api';
 import { trackOnce } from '../../analytics';
 import { useSlides, type BuildInfo, type DraftInfo, type Loadable, type RecapCtx } from './slides';
@@ -439,7 +440,10 @@ export default function MatchPage() {
           </div>
 
           {reviewState && mePlayer && (
-            <MatchReviewCard state={reviewState} hero={heroById?.get(mePlayer.heroId)} playerName={mePlayer.name} />
+            <MatchReviewCard state={reviewState} hero={heroById?.get(mePlayer.heroId)} playerName={mePlayer.name}
+              action={reviewState.kind === 'ready' && reviewState.review.kind === 'personal' && reviewState.review.improve && mePlayer.accountId != null
+                ? <TrackFocusButton review={reviewState.review} accountId={mePlayer.accountId} gameMode={model.gameMode} matchId={model.id} heroById={heroById} />
+                : undefined} />
           )}
 
           <RecapPlayer slides={slides} matchId={model.id} shareUrl={shareUrl} />

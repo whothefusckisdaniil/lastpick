@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n';
 import type { StringKey } from '../../i18n/strings';
 import type { Hero } from '../../types';
@@ -10,7 +11,7 @@ export type ReviewState = { kind: 'loading' } | { kind: 'ready'; review: MatchRe
 const DECIMALS: Record<ReviewMetricId, number> = { gpm: 0, xpm: 0, lastHits: 1, deaths: 1, ka: 1, damage: 0, towers: 0, healing: 0 };
 
 /** The personal match review: display only — the observations come ready from match/review.ts. */
-export function MatchReviewCard({ state, hero, playerName }: { state: ReviewState; hero: Hero | undefined; playerName: string | null }) {
+export function MatchReviewCard({ state, hero, playerName, action }: { state: ReviewState; hero: Hero | undefined; playerName: string | null; /** Optional extra under the focus (e.g. "track this focus"). */ action?: ReactNode }) {
   const i18n = useI18n();
   const { t, plural } = i18n;
   const num = (v: number, d: number) => v.toLocaleString(i18n.lang === 'ru' ? 'ru-RU' : 'en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -68,6 +69,7 @@ export function MatchReviewCard({ state, hero, playerName }: { state: ReviewStat
             <div className="label !text-accent">{t('review.focus')}</div>
             <p className="mt-1 text-[14px] leading-5 text-ink">{t(`review.focus.${r.focus}` as StringKey)}</p>
           </div>
+          {action}
           <p className="mt-3 text-[11px] leading-[14px] text-muted">
             {t(r.basis === 'lane' ? 'review.basisLane' : 'review.basisHero', { n: r.sample, games: plural(r.sample, 'game'), hero: heroName })} {t('review.disclaimer')}
           </p>

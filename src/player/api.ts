@@ -377,11 +377,11 @@ const heroGamesInflight = new Map<string, Promise<HeroGame[]>>();
  * OpenDota would drop non-standard modes — cached in memory and localStorage,
  * concurrent calls share it. Stored compactly as arrays.
  */
-export async function loadHeroGames(accountId: number, heroId: number, gameMode: number, opts: { now?: number } = {}): Promise<HeroGame[]> {
+export async function loadHeroGames(accountId: number, heroId: number, gameMode: number, opts: { now?: number; fresh?: boolean } = {}): Promise<HeroGame[]> {
   const now = opts.now ?? Date.now();
   const key = `${accountId}:${heroId}:${gameMode}`;
   const mem = heroGamesMem.get(key);
-  if (mem && now - mem.at < HERO_GAMES_TTL_MS) return mem.games;
+  if (!opts.fresh && mem && now - mem.at < HERO_GAMES_TTL_MS) return mem.games;
   let stored: Record<string, { v?: number; at: number; rows: (number | null)[][] }> = {};
   try { stored = JSON.parse(localStorage.getItem(HERO_GAMES_KEY) ?? '{}'); } catch { /* ignore */ }
   const unpack = (rows: (number | null)[][]): HeroGame[] => rows.map(([matchId, start, duration, kills, deaths, assists, gpm, xpm, lastHits, heroDamage, towerDamage, heroHealing, mode, laneRole, leaver]) => ({
@@ -389,7 +389,7 @@ export async function loadHeroGames(accountId: number, heroId: number, gameMode:
     heroDamage, towerDamage, heroHealing, gameMode: mode!, laneRole, leaver: leaver === 1,
   }));
   const hit = stored[key]?.v === HERO_GAMES_VERSION ? stored[key] : undefined;
-  if (hit && now - hit.at < HERO_GAMES_TTL_MS) {
+  if (!opts.fresh && hit && now - hit.at < HERO_GAMES_TTL_MS) {
     const games = unpack(hit.rows);
     heroGamesMem.set(key, { games, at: hit.at });
     return games;
