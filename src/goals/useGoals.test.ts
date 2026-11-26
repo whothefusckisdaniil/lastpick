@@ -30,7 +30,7 @@ describe('goal actions', () => {
     setGoalGamesLoader(async (g) => { asked.push(`${g.accountId}:${g.heroId}:${g.gameMode}`); return Array.from({ length: 6 }, (_, i) => game(i)); });
     await goalActions.start(goal({ id: 'g2', heroId: 8, metric: 'gpm', lowerIsBetter: false, createdAt: Date.now() }));
     expect(asked).toEqual(['1001:13:22']);
-    const st = store.saved.at(-1)!;
+    const st = store.saved[store.saved.length - 1]!;
     expect(st.active?.id).toBe('g2');
     expect(st.past[0]).toMatchObject({ id: 'g1', status: 'replaced', outcome: { kind: 'measured', value: 2, count: 6, trend: 'better' } });
   });
@@ -40,7 +40,7 @@ describe('goal actions', () => {
     setGoalStore(store);
     setGoalGamesLoader(async () => { throw new Error('down'); });
     await goalActions.complete();
-    expect(store.saved.at(-1)).toMatchObject({ active: null, past: [{ id: 'g1', status: 'completed', outcome: { kind: 'unknown' } }] });
+    expect(store.saved[store.saved.length - 1]).toMatchObject({ active: null, past: [{ id: 'g1', status: 'completed', outcome: { kind: 'unknown' } }] });
   });
 
   it('starting the first goal needs no loading', async () => {
@@ -50,6 +50,6 @@ describe('goal actions', () => {
     setGoalGamesLoader(async () => { loads++; return []; });
     await goalActions.start(goal());
     expect(loads).toBe(0);
-    expect(store.saved.at(-1)?.past).toEqual([]);
+    expect(store.saved[store.saved.length - 1]?.past).toEqual([]);
   });
 });
