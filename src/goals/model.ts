@@ -8,6 +8,19 @@ import type { ReviewMetricId } from '../match/review';
  */
 export type GoalStatus = 'active' | 'completed' | 'replaced';
 
+/**
+ * The result of a finished goal, frozen when it was completed or replaced:
+ * history never changes with matches played later.
+ *  - measured: the median over the matches between start and end (5+);
+ *  - insufficient: fewer than 5 such matches — no result is claimed;
+ *  - unknown: not recorded (a goal from before results were kept, or the
+ *    matches could not be loaded at the moment it ended).
+ */
+export type GoalOutcome =
+  | { kind: 'measured'; value: number; count: number; trend: 'better' | 'worse' | 'same' }
+  | { kind: 'insufficient'; count: number; needed: number }
+  | { kind: 'unknown' };
+
 export interface ImprovementGoal {
   id: string;
   accountId: number;
@@ -24,6 +37,8 @@ export interface ImprovementGoal {
   status: GoalStatus;
   /** When it was completed or replaced (ms). */
   endedAt?: number;
+  /** Frozen result of a finished goal (absent while active). */
+  outcome?: GoalOutcome;
 }
 
 export interface GoalState {

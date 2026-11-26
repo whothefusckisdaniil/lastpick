@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HeroGame } from '../player/api';
 import type { PersonalReview } from '../match/review';
-import { completeGoal, goalFromReview, goalGames, goalProgress, startGoal } from './calculations';
+import { completeGoal, freezeOutcome, goalFromReview, goalGames, goalProgress, historyOf, startGoal } from './calculations';
 import { EMPTY_GOALS, sameFocus, type ImprovementGoal } from './model';
 import { localGoalStore } from './storage';
 
@@ -99,7 +99,7 @@ describe('one active goal: replace and complete', () => {
     const a = startGoal(EMPTY_GOALS, goal(), T0);
     const b = startGoal(a, goal({ id: 'g2', metric: 'gpm' }), T0 + 5);
     expect(b.active?.id).toBe('g2');
-    expect(b.past).toEqual([{ ...goal(), status: 'replaced', endedAt: T0 + 5 }]);
+    expect(b.past).toEqual([{ ...goal(), status: 'replaced', endedAt: T0 + 5, outcome: { kind: 'unknown' } }]);
   });
 
   it('only the player completes a goal', () => {
@@ -133,5 +133,74 @@ describe('storage', () => {
     s.setItem('lp.goals', JSON.stringify({ v: 1, active: { id: 'x' }, past: [null, 5] }));
     expect(localGoalStore(s).load()).toEqual(EMPTY_GOALS);
     expect(localGoalStore(null).load()).toEqual(EMPTY_GOALS);
+  });
+});
+
+describe('goal history: results frozen at the end', () => {
+  const sixGood = Array.from({ length: 6 }, (_, i) => game(i)); // 2.0 deaths / 10 min
+  const endedAt = T0 + 10 * 3600e3; // after those six (they start 1–6 h after T0)
+
+  it('measured: the median between start and end, with its count and trend', () => {
+    expect(freezeOutcome(goal(), sixGood, endedAt)).toEqual({ kind: 'measured', value: 2, count: 6, trend: 'better' });
+  });
+
+  it('fewer than 5 matches by the end: no result is claimed', () => {
+    expect(freezeOutcome(goal(), sixGood.slice(0, 3), endedAt)).toEqual({ kind: 'insufficient', count: 3, needed: 5 });
+  });
+
+  it('matches could not be loaded: unknown, never a guess', () => {
+    expect(freezeOutcome(goal(), null, endedAt)).toEqual({ kind: 'unknown' });
+  });
+
+  it('matches after the end never change a frozen result', () => {
+    const later = Array.from({ length: 30 }, (_, i) => game(50 + i, { deaths: 30 })); // start after endedAt
+    expect(freezeOutcome(goal(), [...sixGood, ...later], endedAt)).toEqual(freezeOutcome(goal(), sixGood, endedAt));
+  });
+
+  it('completed and replaced keep their own status and result', () => {
+    const measured = freezeOutcome(goal(), sixGood, endedAt);
+    let st = startGoal(EMPTY_GOALS, goal(), T0);
+    st = startGoal(st, goal({ id: 'g2', metric: 'gpm', lowerIsBetter: false }), endedAt, measured);
+    st = completeGoal(st, endedAt + 1, { kind: 'insufficient', count: 2, needed: 5 });
+    expect(st.active).toBeNull();
+    expect(st.past.map((g) => [g.id, g.status, g.outcome?.kind])).toEqual([['g2', 'completed', 'insufficient'], ['g1', 'replaced', 'measured']]);
+    expect(st.past[1].outcome).toEqual(measured);
+    expect(st.past[1].endedAt).toBe(endedAt);
+  });
+
+  it('history per player, newest first, capped', () => {
+    let st = EMPTY_GOALS;
+    for (let i = 0; i < 25; i++) st = startGoal(st, goal({ id: `g${i}`, accountId: i % 2 ? 1001 : 2002 }), T0 + i);
+    expect(st.past).toHaveLength(20);
+    expect(historyOf(st, 1001).every((g) => g.accountId === 1001)).toBe(true);
+    expect(historyOf(st, 1001)[0].id).toBe('g23');
+  });
+});
+
+describe('storage: migration and reloads', () => {
+  const mem = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }; };
+
+  it('v1 records (no results) are kept and marked "unknown"', () => {
+    const s = mem();
+    const old = { ...goal({ id: 'old' }), status: 'completed', endedAt: T0 + 1 };
+    s.setItem('lp.goals', JSON.stringify({ v: 1, active: goal({ id: 'act' }), past: [old] }));
+    const st = localGoalStore(s).load();
+    expect(st.active?.id).toBe('act');
+    expect(st.active?.outcome).toBeUndefined();
+    expect(st.past).toEqual([{ ...old, outcome: { kind: 'unknown' } }]);
+  });
+
+  it('a broken outcome becomes "unknown", the goal stays', () => {
+    const s = mem();
+    s.setItem('lp.goals', JSON.stringify({ v: 2, active: null, past: [{ ...goal(), status: 'replaced', endedAt: T0, outcome: { kind: 'measured', value: 'x' } }] }));
+    expect(localGoalStore(s).load().past[0].outcome).toEqual({ kind: 'unknown' });
+  });
+
+  it('frozen results survive a reload exactly', () => {
+    const s = mem();
+    const st = completeGoal(startGoal(EMPTY_GOALS, goal(), T0), T0 + 5, { kind: 'measured', value: 2.25, count: 7, trend: 'better' });
+    localGoalStore(s).save(st);
+    expect(localGoalStore(s).load()).toEqual(st);
+    expect(JSON.parse(s.getItem('lp.goals')!).v).toBe(2);
   });
 });

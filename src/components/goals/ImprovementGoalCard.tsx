@@ -13,11 +13,12 @@ export function ImprovementGoalCard({ goal, state, hero, onComplete }: {
   goal: ImprovementGoal;
   state: GoalProgressState;
   hero: Hero | undefined;
-  onComplete: () => void;
+  onComplete: () => Promise<void>;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
   const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
   const locale = i18n.lang === 'ru' ? 'ru-RU' : 'en-US';
   const d = METRIC_DECIMALS[goal.metric];
   const num = (v: number) => v.toLocaleString(locale, { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -78,7 +79,7 @@ export function ImprovementGoalCard({ goal, state, hero, onComplete }: {
           <div className="notice flex-col !items-start gap-2">
             <span className="text-ink">{t('goal.completeAsk')}</span>
             <div className="flex gap-2">
-              <button type="button" onClick={() => { setConfirm(false); onComplete(); }} className="btn btn-accent btn-sm">{t('goal.completeYes')}</button>
+              <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { await onComplete(); } finally { setBusy(false); setConfirm(false); } }} className="btn btn-accent btn-sm">{busy ? t('goal.saving') : t('goal.completeYes')}</button>
               <button type="button" onClick={() => setConfirm(false)} className="btn btn-ghost btn-sm">{t('goal.cancel')}</button>
             </div>
           </div>

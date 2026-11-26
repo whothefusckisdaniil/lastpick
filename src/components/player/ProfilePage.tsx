@@ -19,7 +19,8 @@ import { CompareSection, LearnSection, PatchSection } from './ProfileV3';
 import { WeeklyReviewCard, type WeeklyState } from './WeeklyReviewCard';
 import { weeklyReview } from '../../player/weeklyReview';
 import { ImprovementGoalCard, type GoalProgressState } from '../goals/ImprovementGoalCard';
-import { goalProgress } from '../../goals/calculations';
+import { goalProgress, historyOf } from '../../goals/calculations';
+import { GoalHistoryCard } from '../goals/GoalHistoryCard';
 import { goalActions, useGoals } from '../../goals/useGoals';
 import { StatTile, Tabs } from '../ui';
 
@@ -425,7 +426,8 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   <>
               {pool?.lowData && <div className="notice">{t('profile.lowData', { n: profile.win + profile.lose })}</div>}
               {days != null && days > APP_CONFIG.player.staleDays && <div className="notice">{t('profile.oldPool', { n: days })}</div>}
-                    {goal && goalState && <ImprovementGoalCard goal={goal} state={goalState} hero={dataset?.heroById.get(goal.heroId)} onComplete={goalActions.complete} />}
+                    {goal && goalState && <ImprovementGoalCard goal={goal} state={goalState} hero={dataset?.heroById.get(goal.heroId)} onComplete={() => goalActions.complete()} />}
+                    {profile && historyOf(goals, profile.id).length > 0 && <GoalHistoryCard goals={historyOf(goals, profile.id)} heroById={dataset?.heroById} />}
                     {weekly && <WeeklyReviewCard state={weekly} isMe={isMe} heroById={dataset?.heroById} />}
                     <Overview profile={profile} stats={stats} width={width} recent={recent?.kind === 'ready' ? recent.games : null} heroById={dataset?.heroById} onTab={setTab} />
               {isMe && (

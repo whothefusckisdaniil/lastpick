@@ -22,6 +22,7 @@ export function TrackFocusButton({ review, accountId, gameMode, matchId, heroByI
   const { t } = i18n;
   const { active } = useGoals();
   const [ask, setAsk] = useState(false);
+  const [busy, setBusy] = useState(false);
   if (!review.improve) return null;
   const candidate = goalFromReview(review, { accountId, gameMode, matchId, now: Date.now() });
   if (!candidate) return null;
@@ -37,14 +38,18 @@ export function TrackFocusButton({ review, accountId, gameMode, matchId, heroByI
     );
   }
 
-  const start = () => { goalActions.start(goalFromReview(review, { accountId, gameMode, matchId, now: Date.now() })!); setAsk(false); };
+  // replacing freezes the old goal's result first (it may need its matches), hence async
+  const start = async () => {
+    setBusy(true);
+    try { await goalActions.start(goalFromReview(review, { accountId, gameMode, matchId, now: Date.now() })!); } finally { setBusy(false); setAsk(false); }
+  };
 
   if (ask && active) {
     return (
       <div className="notice mt-2 flex-col !items-start gap-2" role="alertdialog" aria-label={t('goal.replaceTitle')}>
         <span className="text-ink">{t('goal.replaceAsk', { title: t(`goal.title.${active.metric}` as StringKey), hero: heroName(active.heroId) })}</span>
         <div className="flex gap-2">
-          <button type="button" onClick={start} className="btn btn-accent btn-sm">{t('goal.replace')}</button>
+          <button type="button" onClick={start} disabled={busy} className="btn btn-accent btn-sm">{busy ? t('goal.saving') : t('goal.replace')}</button>
           <button type="button" onClick={() => setAsk(false)} className="btn btn-ghost btn-sm">{t('goal.cancel')}</button>
         </div>
       </div>
@@ -53,7 +58,7 @@ export function TrackFocusButton({ review, accountId, gameMode, matchId, heroByI
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-      <button type="button" onClick={() => (active ? setAsk(true) : start())} className="btn btn-accent btn-sm">{t('goal.track')}</button>
+      <button type="button" onClick={() => (active ? setAsk(true) : void start())} disabled={busy} className="btn btn-accent btn-sm">{t('goal.track')}</button>
       <span className="text-[12px] leading-4 text-muted">{t('goal.trackHint')}</span>
     </div>
   );
