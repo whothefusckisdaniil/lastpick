@@ -37,6 +37,8 @@ export interface IdealSlot {
   suggestion?: ItemSuggestion;
   /** For kind 'team': the team need it answers. */
   need?: TeamNeed;
+  /** A leveled item (Dagon 1–5): the level most of its buyers reach, and when. */
+  upTo?: { level: number; minute: number; pct: number };
 }
 
 export interface IdealBuild {
@@ -71,6 +73,21 @@ export const COUNTER_ONLY: Record<string, string> = {
 
 export const FARM_ALTERNATIVES = new Set(['radiance', 'maelstrom', 'mjollnir', 'gleipnir', 'bfury']);
 
+/**
+ * Levels of one item (Dagon → dagon_2 … dagon_5): the same name, the key
+ * with "_<n>". They are one slot upgraded in place, not new items — unlike
+ * Boots of Travel 2 or Aghanim's Blessing, which have names of their own.
+ * Returns the base key and the level, or null.
+ */
+export function itemLevel(key: string, itemOf: (id: number) => [string, string, string[]?] | undefined, idOfKey: (k: string) => number | undefined): { base: string; level: number } | null {
+  const m = /^(.+)_([2-9])$/.exec(key);
+  if (!m) return null;
+  const baseId = idOfKey(m[1]);
+  const selfId = idOfKey(key);
+  if (baseId == null || selfId == null) return null;
+  return itemOf(baseId)?.[1] === itemOf(selfId)?.[1] ? { base: m[1], level: Number(m[2]) } : null;
+}
+
 export function idealBuild(
   build: Build,
   /** itemId → [key, name, components?] (builds index). */
@@ -80,7 +97,25 @@ export function idealBuild(
   needs: TeamNeed[] = [],
 ): IdealBuild {
   const key = (id: number) => itemOf(id)?.[0] ?? '';
-  const allLater = build.items.filter((x) => x[2] >= IDEAL.laningMinute && !NO_SLOT.has(key(x[0])));
+  // Levels of one item take one slot: the base row stays (first purchase,
+  // its share), the levels go into `upTo` — the highest level at least half
+  // of its buyers reach.
+  const idOfKey = (k: string) => build.items.find((x) => key(x[0]) === k)?.[0];
+  const levels = new Map<string, { level: number; pct: number; minute: number }[]>();
+  const items = build.items.filter((x) => {
+    const lv = itemLevel(key(x[0]), itemOf, idOfKey);
+    if (!lv) return true;
+    levels.set(lv.base, [...(levels.get(lv.base) ?? []), { level: lv.level, pct: x[1], minute: x[2] }]);
+    return false;
+  });
+  const upToOf = (id: number) => {
+    const row = build.items.find((x) => x[0] === id);
+    const ls = levels.get(key(id));
+    if (!row || !ls) return undefined;
+    const reached = ls.filter((l) => l.pct >= row[1] * IDEAL.upgradeRatio).sort((a, b) => b.level - a.level)[0];
+    return reached ? { level: reached.level, minute: reached.minute, pct: reached.pct } : undefined;
+  };
+  const allLater = items.filter((x) => x[2] >= IDEAL.laningMinute && !NO_SLOT.has(key(x[0])));
   const comps = (id: number) => itemOf(id)?.[2] ?? [];
   // Intermediate items: bought on their own here and part of another recipe
   // (Dragon Lance, Maelstrom, Yasha, Kaya…).
@@ -132,7 +167,7 @@ export function idealBuild(
   const add = (x: (typeof pool)[number], kind: SlotKind, suggestion?: ItemSuggestion, need?: TeamNeed) => {
     if (chosen.size >= IDEAL.slots || chosen.has(x[0])) return;
     if (kind !== 'draft' && replacedByDraft.has(key(x[0]))) return;
-    chosen.set(x[0], { id: x[0], key: key(x[0]), pct: x[1], minute: x[2], kind, suggestion, need });
+    chosen.set(x[0], { id: x[0], key: key(x[0]), pct: x[1], minute: x[2], kind, suggestion, need, upTo: upToOf(x[0]) });
   };
   const needOf = (x: (typeof pool)[number]) => needs.find((n) => itemHasRole(key(x[0]), n.role));
 

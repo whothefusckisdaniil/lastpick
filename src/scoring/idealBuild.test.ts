@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Build } from '../data/dataset';
-import { idealBuild } from './idealBuild';
+import { idealBuild, itemLevel } from './idealBuild';
 import type { ItemSuggestion } from './itemRules';
 
 const ITEMS: Record<number, [string, string, string[]?]> = {
@@ -193,5 +193,38 @@ describe('draft items that are upgrades', () => {
 
   it('without the draft asking, the upgrade stays out (its component holds the slot)', () => {
     expect(idealBuild(STORM, (id) => IT[id]).slots.map((s) => s.key)).not.toContain('bloodthorn');
+  });
+});
+
+describe('leveled items (Dagon 1–5)', () => {
+  // Nyx Assassin mid (Divine, 7.42): each Dagon level is its own item in the data
+  const IT: Record<number, [string, string, string[]?]> = {
+    180: ['arcane_boots', 'Arcane Boots'], 300: ['phylactery', 'Phylactery'], 104: ['dagon', 'Dagon', ['point_booster', 'crown', 'wizard_hat']],
+    201: ['dagon_2', 'Dagon'], 202: ['dagon_3', 'Dagon'], 203: ['dagon_4', 'Dagon'], 204: ['dagon_5', 'Dagon'],
+    108: ['ultimate_scepter', "Aghanim's Scepter"], 271: ['ultimate_scepter_2', "Aghanim's Blessing"], 223: ['meteor_hammer', 'Meteor Hammer'],
+    100: ['cyclone', "Eul's Scepter of Divinity"], 102: ['force_staff', 'Force Staff'], 1: ['blink', 'Blink Dagger'], 259: ['kaya', 'Kaya'],
+  };
+  const NYX = {
+    m: 9000, low: false, start: [], talents: [], skills: [], boots: [[180, 0.27, 9]],
+    items: [[300, 0.41, 13, 50], [104, 0.47, 16, 50], [259, 0.42, 16, 50], [201, 0.35, 21, 50], [108, 0.51, 31, 50], [202, 0.31, 24, 50], [223, 0.3, 15, 50],
+      [203, 0.26, 26, 50], [204, 0.23, 28, 50], [100, 0.19, 30, 50], [102, 0.13, 30, 50], [1, 0.06, 24, 50]],
+  } as unknown as Build;
+
+  it('one slot for all levels, with the level most buyers reach', () => {
+    const ib = idealBuild(NYX, (id) => IT[id]);
+    const dagons = ib.slots.filter((s) => s.key.startsWith('dagon'));
+    expect(dagons).toHaveLength(1);
+    expect(dagons[0]).toMatchObject({ key: 'dagon', pct: 0.47, minute: 16, kind: 'core' });
+    // 2: 35%, 3: 31%, 4: 26% are ≥ half of 47%; 5: 23% is not
+    expect(dagons[0].upTo).toEqual({ level: 4, minute: 26, pct: 0.26 });
+    expect(ib.slots).toHaveLength(6);
+    expect(ib.slots.map((s) => s.key)).toEqual(expect.arrayContaining(['phylactery', 'ultimate_scepter']));
+  });
+
+  it('items with a name of their own are not levels', () => {
+    const idOf = (k: string) => Number(Object.entries(IT).find(([, v]) => v[0] === k)?.[0]);
+    expect(itemLevel('dagon_3', (id) => IT[id], idOf)).toEqual({ base: 'dagon', level: 3 });
+    expect(itemLevel('ultimate_scepter_2', (id) => IT[id], idOf)).toBeNull();
+    expect(itemLevel('blink', (id) => IT[id], idOf)).toBeNull();
   });
 });

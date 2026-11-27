@@ -8,7 +8,7 @@ import type { StringKey } from '../i18n/strings';
 import { HeroPortrait } from './HeroPortrait';
 import { DiamondLoader } from './Brand';
 import { suggestItems, type ItemSuggestion } from '../scoring/itemRules';
-import { COUNTER_ONLY, idealBuild } from '../scoring/idealBuild';
+import { COUNTER_ONLY, itemLevel, idealBuild } from '../scoring/idealBuild';
 import { teamNeeds, type TeamNeed } from '../scoring/teamNeeds';
 
 const CDN = 'https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react';
@@ -154,7 +154,7 @@ export function BuildPanel({ hero, preferLane, onLane, onClose, enemies = [], al
   );
 }
 
-function ItemTile({ id, meta, top, bottom, qty, hot, tag, tagHot, tagTeam, tagTitle }: {
+function ItemTile({ id, meta, top, bottom, qty, hot, tag, tagHot, tagTeam, tagTitle, note, noteTitle, level }: {
   id: number;
   meta: [string, string, string[]?] | undefined;
   top?: string;
@@ -168,12 +168,17 @@ function ItemTile({ id, meta, top, bottom, qty, hot, tag, tagHot, tagTeam, tagTi
   tagTeam?: boolean;
   /** Full reason behind a short tag (tooltip). */
   tagTitle?: string;
+  /** A small extra line (e.g. "to level 4"). */
+  note?: string;
+  noteTitle?: string;
+  /** The level of a leveled item (Dagon 2…), added to the name. */
+  level?: number;
 }) {
-  const name = meta?.[1] ?? `#${id}`;
+  const name = `${meta?.[1] ?? `#${id}`}${level ? ` ${level}` : ''}`;
   // both start with "Aghanim's" and truncate to the same text in a tile
-  const label = meta ? SHORT_NAMES[meta[0]] ?? name : name;
+  const label = meta && !level ? SHORT_NAMES[meta[0]] ?? name : name;
   return (
-    <li className="flex w-[72px] flex-none flex-col items-center text-center" title={[name, top, bottom, tagTitle].filter(Boolean).join(' · ')}>
+    <li className="flex w-[72px] flex-none flex-col items-center text-center" title={[name, top, bottom, noteTitle, tagTitle].filter(Boolean).join(' · ')}>
       <span className="relative h-[44px] w-[60px] overflow-hidden rounded-md bg-surface-2">
         {meta && <img src={itemImg(meta[0])} alt="" width={88} height={64} loading="lazy" decoding="async" className="h-full w-full object-cover" />}
         {qty && qty > 1 ? <span className="tnum absolute bottom-0 right-0 rounded-tl-md bg-bg/85 px-1 text-[11px] font-semibold text-ink">×{qty}</span> : null}
@@ -183,6 +188,7 @@ function ItemTile({ id, meta, top, bottom, qty, hot, tag, tagHot, tagTeam, tagTi
       <span className="mt-1 w-full truncate text-[11px] leading-[14px] text-ink">{label}</span>
       {top && <span className="tnum text-[11px] font-semibold leading-[14px] text-ink">{top}</span>}
       {bottom && <span className="tnum text-[11px] leading-[14px] text-muted">{bottom}</span>}
+      {note && <span className="tnum text-[11px] leading-[14px] text-accent">{note}</span>}
       {tag && <span className={`mt-0.5 line-clamp-2 w-full break-words text-[11px] font-semibold leading-[14px] ${tagHot ? 'text-accent' : tagTeam ? 'text-ally' : 'text-muted'}`}>{tag}</span>}
     </li>
   );
@@ -215,6 +221,9 @@ function BuildBody({ build, itemOf, abilityOf, abilityName, highlight }: {
   const pctLabel = (x: number) => `${pct(x)}%`;
   const minLabel = (m: number) => t('build.min', { min: m });
   const hot = (id: number) => highlight.has(itemOf(id)?.[0] ?? '');
+  // Dagon 2…5 read as levels, not as the same "Dagon" again
+  const idOfKey = (k: string) => build.items.find((x) => itemOf(x[0])?.[0] === k)?.[0];
+  const levelOf = (id: number) => itemLevel(itemOf(id)?.[0] ?? '', itemOf, idOfKey)?.level;
 
   return (
     <>
@@ -235,12 +244,12 @@ function BuildBody({ build, itemOf, abilityOf, abilityName, highlight }: {
       )}
       {core.length > 0 && (
         <Row title={t('build.core')}>
-          {core.map(([id, p, m]) => <ItemTile key={id} id={id} meta={itemOf(id)} top={pctLabel(p)} bottom={minLabel(m)} hot={hot(id)} />)}
+          {core.map(([id, p, m]) => <ItemTile key={id} id={id} meta={itemOf(id)} level={levelOf(id)} top={pctLabel(p)} bottom={minLabel(m)} hot={hot(id)} />)}
         </Row>
       )}
       {situational.length > 0 && (
         <Row title={t('build.situational')}>
-          {situational.slice(0, 12).map(([id, p, m]) => <ItemTile key={id} id={id} meta={itemOf(id)} top={pctLabel(p)} bottom={minLabel(m)} hot={hot(id)} />)}
+          {situational.slice(0, 12).map(([id, p, m]) => <ItemTile key={id} id={id} meta={itemOf(id)} level={levelOf(id)} top={pctLabel(p)} bottom={minLabel(m)} hot={hot(id)} />)}
         </Row>
       )}
 
@@ -371,6 +380,8 @@ function IdealRow({ build, itemOf, suggestions, needs }: {
             tagTitle={sl.kind === 'draft' ? vs(sl.suggestion) : sl.kind === 'team' && sl.need ? needText(sl.need) : undefined}
             tagHot={sl.kind === 'draft'}
             tagTeam={sl.kind === 'team'}
+            note={sl.upTo ? t('build.upTo', { level: sl.upTo.level }) : undefined}
+            noteTitle={sl.upTo ? t('build.upToHint', { level: sl.upTo.level, min: sl.upTo.minute }) : undefined}
           />
         ))}
         {ib.shard && (
