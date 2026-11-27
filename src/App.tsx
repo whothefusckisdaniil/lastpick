@@ -253,6 +253,7 @@ export default function App() {
               <li>{t('privacy.analytics')}</li>
               <li>{t('privacy.match')}</li>
               <li>{t('privacy.player')}</li>
+              <li>{t('privacy.steam')}</li>
             </ul>
             <p className="mt-3">{t('privacy.note')}</p>
           </section>

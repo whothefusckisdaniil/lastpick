@@ -24,6 +24,7 @@ import { GoalHistoryCard } from '../goals/GoalHistoryCard';
 import { goalActions, useGoals } from '../../goals/useGoals';
 import { StatTile, Tabs } from '../ui';
 import { FavoritesSection } from './FavoritesSection';
+import { SteamAccount } from './SteamAccount';
 
 import { trackOnce, trackEvent } from '../../analytics';
 
@@ -361,6 +362,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
           <button type="submit" className="btn btn-accent">{t('profile.go')}</button>
         </form>
         {hint === 'vanity' && <p className="mt-2 text-[13px] leading-[18px] text-muted" role="alert">{t('profile.vanity')}</p>}
+        <SteamAccount />
         {search.kind === 'loading' && <p className="mt-3 text-[13px] text-muted">{t('profile.searching')}</p>}
         {search.kind === 'error' && <p className="mt-3 text-[13px] text-neg" role="alert">{t(`profile.err.${search.error}` as StringKey)}</p>}
         {search.kind === 'ready' && (search.hits.length === 0 ? (

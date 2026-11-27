@@ -4,6 +4,7 @@ import type { Hero } from '../../types';
 import { MAX_FAVORITES, setFavorites } from '../../player/usePlayer';
 import { HeroPortrait } from '../HeroPortrait';
 import { HeroSearch } from '../HeroSearch';
+import { SyncStatus } from './SteamAccount';
 
 /** Up to 10 favourite heroes: always offered in "My pool", even without games on them yet. */
 export function FavoritesSection({ favorites, heroes, heroById }: { favorites: number[]; heroes: Hero[]; heroById: Map<number, Hero> }) {
@@ -41,6 +42,7 @@ export function FavoritesSection({ favorites, heroes, heroById }: { favorites: n
         {full ? <p className="text-[12px] text-muted">{t('fav.full', { max: MAX_FAVORITES })}</p>
           : <HeroSearch heroes={heroes} excluded={chosen} onPick={(h) => setFavorites([...favorites, h.id])} />}
       </div>
+      <SyncStatus />
     </section>
   );
 }

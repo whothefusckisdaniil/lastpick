@@ -3,7 +3,7 @@
  *  - /data/*.json: network first (refreshed daily), cache when offline;
  *  - hashed assets, portraits, medals, icons, fonts: cache first.
  * Bump VERSION to drop old caches. */
-const VERSION = 'lastpick-v1';
+const VERSION = 'lastpick-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/icons/icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -45,6 +45,8 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  // sign-in and synced settings always go straight to the server
+  if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) return;
   if (req.mode === 'navigate') {
     event.respondWith(networkFirst(req, '/'));
     return;
