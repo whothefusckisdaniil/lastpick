@@ -629,6 +629,8 @@ const en = {
   'privacy.match': 'Match analysis loads the match straight from OpenDota in your browser: only the match ID is sent. The last few matches you open are kept in your browser.',
 
   'match.title': 'Match recap',
+  'match.recent.prev': 'Earlier matches',
+  'match.recent.next': 'More matches',
   'match.recent.title': 'Your recent matches',
   'match.recent.hint': 'Tap a match: the analysis centres on your hero.',
   'match.recent.error': 'Could not load your recent matches. Paste a match ID instead.',
@@ -1512,6 +1514,8 @@ const ru: Record<StringKey, string> = {
   'privacy.match': 'Анализ матча загружает матч прямо из OpenDota в вашем браузере: отправляется только ID матча. Несколько последних открытых матчей хранятся в вашем браузере.',
 
   'match.title': 'Разбор матча',
+  'match.recent.prev': 'Предыдущие матчи',
+  'match.recent.next': 'Ещё матчи',
   'match.recent.title': 'Ваши последние матчи',
   'match.recent.hint': 'Нажмите на матч — разбор построится вокруг вашего героя.',
   'match.recent.error': 'Не удалось загрузить ваши последние матчи. Вставьте ID матча вручную.',

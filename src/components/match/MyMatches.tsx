@@ -6,6 +6,7 @@ import { fetchRecent } from '../../player/api';
 import type { RecentGame } from '../../player/poolStats';
 import { useMe } from '../../player/usePlayer';
 import { HeroPortrait } from '../HeroPortrait';
+import { ScrollStrip } from '../ui';
 
 type Load = { kind: 'loading' } | { kind: 'ready'; games: RecentGame[] } | { kind: 'error' };
 
@@ -69,7 +70,7 @@ export function MyMatches({ heroById, current, onPick }: {
       {load.kind === 'ready' && (load.games.length === 0 ? (
         <p className="mt-2 text-[13px] text-muted">{t('match.recent.none')}</p>
       ) : (
-        <ol className="no-scrollbar stagger -mx-4 mt-2 flex snap-x scroll-pl-4 gap-2 overflow-x-auto px-4 pb-2 pt-1 sm:-mx-6 sm:scroll-pl-6 sm:px-6">
+        <div className="-mx-4 mt-2 sm:-mx-6"><ScrollStrip className="stagger flex snap-x scroll-pl-4 gap-2 px-4 pb-2 pt-1 sm:scroll-pl-6 sm:px-6" label={t('match.recent.title')} prevLabel={t('match.recent.prev')} nextLabel={t('match.recent.next')}>
           {load.games.map((g, i) => {
             const h = heroById?.get(g.heroId);
             const on = current === g.matchId;
@@ -88,7 +89,7 @@ export function MyMatches({ heroById, current, onPick }: {
               </li>
             );
           })}
-        </ol>
+        </ScrollStrip></div>
       ))}
     </div>
   );

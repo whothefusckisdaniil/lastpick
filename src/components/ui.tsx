@@ -76,3 +76,60 @@ export function useCountUp(value: number, ms = 700): number {
   }, [value, ms]);
   return shown;
 }
+
+/**
+ * A horizontal strip that also scrolls with a plain mouse wheel (a vertical
+ * wheel turns into horizontal scrolling while the strip can still move that
+ * way; at either end the page scrolls as usual), with prev / next arrows on
+ * devices with a mouse. Touch and trackpads keep their native swipe.
+ */
+export function ScrollStrip({ children, className = '', label, prevLabel, nextLabel }: {
+  children: ReactNode;
+  /** Classes of the scrolling list (layout, gaps, paddings). */
+  className?: string;
+  label?: string;
+  prevLabel: string;
+  nextLabel: string;
+}) {
+  const ref = useRef<HTMLOListElement>(null);
+  const [edges, setEdges] = useState({ start: true, end: true });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      setEdges({ start: el.scrollLeft <= 2, end: el.scrollLeft >= max - 2 });
+    };
+    const onWheel = (e: WheelEvent) => {
+      // trackpads send horizontal deltas themselves; only translate a mostly vertical wheel
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || e.ctrlKey) return;
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 0) return;
+      const dy = e.deltaMode === 1 ? e.deltaY * 32 : e.deltaMode === 2 ? e.deltaY * el.clientWidth : e.deltaY;
+      // at an end, let the page scroll
+      if ((dy < 0 && el.scrollLeft <= 0) || (dy > 0 && el.scrollLeft >= max - 1)) return;
+      e.preventDefault();
+      el.scrollLeft += dy;
+    };
+    update();
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    return () => { el.removeEventListener('wheel', onWheel); el.removeEventListener('scroll', update); ro?.disconnect(); };
+  }, []);
+
+  const page = (dir: 1 | -1) => {
+    const el = ref.current;
+    if (el) el.scrollBy({ left: dir * Math.max(120, el.clientWidth * 0.8), behavior: 'smooth' });
+  };
+
+  return (
+    <div className="scroll-strip relative">
+      <ol ref={ref} className={`no-scrollbar overflow-x-auto ${className}`} aria-label={label}>{children}</ol>
+      {!edges.start && <button type="button" className="strip-arrow strip-arrow-prev" onClick={() => page(-1)} aria-label={prevLabel}>‹</button>}
+      {!edges.end && <button type="button" className="strip-arrow strip-arrow-next" onClick={() => page(1)} aria-label={nextLabel}>›</button>}
+    </div>
+  );
+}
