@@ -1,5 +1,5 @@
-import { env } from './_lib/env';
-import { accountOf, json } from './_lib/http';
+import { env } from './_lib/env.js';
+import { accountOf, json } from './_lib/http.js';
 
 /** Who is signed in: { signedIn, accountId } — or that sign-in is not set up on this deployment. */
 export async function GET(req: Request): Promise<Response> {

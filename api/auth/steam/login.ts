@@ -1,6 +1,6 @@
-import { env } from '../../_lib/env';
-import { safeReturn } from '../../_lib/http';
-import { loginUrl } from '../../_lib/steam';
+import { env } from '../../_lib/env.js';
+import { safeReturn } from '../../_lib/http.js';
+import { loginUrl } from '../../_lib/steam.js';
 
 /** Start Steam sign-in: off to Steam, which comes back to /api/auth/steam/callback. */
 export function GET(req: Request): Response {

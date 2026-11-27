@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { readSession, signSession } from './session';
-import { accountIdOf, loginUrl, STEAM_OPENID, verifyCallback } from './steam';
-import { cleanSettings, type SettingsStore, type UserSettings } from './store';
-import { safeReturn } from './http';
-import { handle } from '../settings';
+import { readSession, signSession } from './session.js';
+import { accountIdOf, loginUrl, STEAM_OPENID, verifyCallback } from './steam.js';
+import { cleanSettings, type SettingsStore, type UserSettings } from './store.js';
+import { safeReturn } from './http.js';
+import { handle } from '../settings.js';
 
 const SECRET = 'test-secret-0123456789abcdef0123456789';
 const SITE = 'https://lastpick-pro.vercel.app';

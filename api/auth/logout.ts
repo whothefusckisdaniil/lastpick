@@ -1,4 +1,4 @@
-import { clearCookie, json, sameOrigin } from '../_lib/http';
+import { clearCookie, json, sameOrigin } from '../_lib/http.js';
 
 export function POST(req: Request): Response {
   if (!sameOrigin(req)) return json({ error: 'forbidden' }, 403);

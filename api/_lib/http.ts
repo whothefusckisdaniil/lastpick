@@ -1,5 +1,5 @@
-import { env } from './env';
-import { readSession, SESSION_COOKIE, SESSION_DAYS } from './session';
+import { env } from './env.js';
+import { readSession, SESSION_COOKIE, SESSION_DAYS } from './session.js';
 
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers } });

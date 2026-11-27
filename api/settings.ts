@@ -1,5 +1,5 @@
-import { accountOf, json, sameOrigin } from './_lib/http';
-import { cleanSettings, redisStore, type SettingsStore } from './_lib/store';
+import { accountOf, json, sameOrigin } from './_lib/http.js';
+import { cleanSettings, redisStore, type SettingsStore } from './_lib/store.js';
 
 /**
  * The signed-in player's synced settings (favourite heroes, roles).

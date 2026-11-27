@@ -1,4 +1,4 @@
-import { env } from './env';
+import { env } from './env.js';
 
 /**
  * What a signed-in player keeps on the server: favourite heroes and roles.

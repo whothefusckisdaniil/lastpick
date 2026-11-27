@@ -1,7 +1,7 @@
-import { env } from '../../_lib/env';
-import { safeReturn, sessionCookie } from '../../_lib/http';
-import { signSession } from '../../_lib/session';
-import { verifyCallback } from '../../_lib/steam';
+import { env } from '../../_lib/env.js';
+import { safeReturn, sessionCookie } from '../../_lib/http.js';
+import { signSession } from '../../_lib/session.js';
+import { verifyCallback } from '../../_lib/steam.js';
 
 /** Steam's answer: verified with Steam, then a session cookie and back to the page. */
 export async function GET(req: Request): Promise<Response> {
