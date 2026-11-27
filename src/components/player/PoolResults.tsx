@@ -147,14 +147,12 @@ export function PoolResults({ results, overall, profile, lowData, summary, roles
               if (!cur || x.score > cur.x.score) best.set(id, { x, lane });
             }
             const list = [...best.values()].sort((a, b) => b.x.score - a.x.score);
-            return list.length ? (
-              <div className="mt-3">
-                <h3 className="label mb-2">★ {t('fav.inPool')}</h3>
-                <div className="grid gap-2">
-                  {list.map(({ x, lane }) => <PoolRow key={x.c.hero.id} x={x} tag={title(lane)} lowData={lowData} favorite onOpen={() => onViewDetails(x.c, lane)} />)}
-                </div>
+            // right in the list, on their best lane — not a block one has to scroll to
+            return list.map(({ x, lane }, k) => (
+              <div key={`fav-${x.c.hero.id}`} style={{ '--i': shown.length + k } as React.CSSProperties}>
+                <PoolRow x={x} tag={title(lane)} lowData={lowData} favorite onOpen={() => onViewDetails(x.c, lane)} />
               </div>
-            ) : null;
+            ));
           })()}
         </div>
       ) : (
@@ -173,24 +171,13 @@ export function PoolResults({ results, overall, profile, lowData, summary, roles
             ) : (
               <>
                 <div className="stagger grid gap-2">
-                  {res.list.slice(0, 5).map((x, i) => (
+                  {/* the top 5, and the favourites wherever they rank: one list, each with its place */}
+                  {res.list.map((x, i) => ({ x, place: i + 1 })).filter(({ x, place }) => place <= 5 || favorites.has(x.c.hero.id)).map(({ x, place }, i) => (
                     <div key={x.c.hero.id} style={{ '--i': i } as React.CSSProperties}>
-                      <PoolRow x={x} rank={i + 1} lowData={lowData} favorite={favorites.has(x.c.hero.id)} onOpen={() => onViewDetails(x.c, lane)} />
+                      <PoolRow x={x} rank={place} lowData={lowData} favorite={favorites.has(x.c.hero.id)} onOpen={() => onViewDetails(x.c, lane)} />
                     </div>
                   ))}
                 </div>
-                {(() => {
-                  const favs = res.list.map((x, i) => ({ x, place: i + 1 })).filter(({ x, place }) => place > 5 && favorites.has(x.c.hero.id));
-                  return favs.length ? (
-                    <div className="mt-4">
-                      <h3 className="label">★ {t('fav.inPool')}</h3>
-                      <p className="mb-2 mt-0.5 text-[12px] text-muted">{t('fav.belowTop')}</p>
-                      <div className="grid gap-2">
-                        {favs.map(({ x, place }) => <PoolRow key={x.c.hero.id} x={x} rank={place} lowData={lowData} favorite onOpen={() => onViewDetails(x.c, lane)} />)}
-                      </div>
-                    </div>
-                  ) : null;
-                })()}
                 <VsOverall r={res} />
                 {res.avoid.filter((x) => !favorites.has(x.c.hero.id)).length > 0 && (
                   <div className="mt-5">
