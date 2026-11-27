@@ -23,6 +23,7 @@ import { goalProgress, historyOf } from '../../goals/calculations';
 import { GoalHistoryCard } from '../goals/GoalHistoryCard';
 import { goalActions, useGoals } from '../../goals/useGoals';
 import { StatTile, Tabs } from '../ui';
+import { FavoritesSection } from './FavoritesSection';
 
 import { trackOnce, trackEvent } from '../../analytics';
 
@@ -92,10 +93,10 @@ function Overview({ profile, stats, width, recent, heroById, onTab }: {
       <StatTile label={t('profile.tile.form')} value={f ? `${f.wins}–${f.losses}` : '—'} tone={!f ? 'ink' : f.wins >= f.losses ? 'pos' : 'neg'}
         sub={<>{t('profile.tile.formSub')}{f && Math.abs(f.streak) >= 2 && <span className={f.streak > 0 ? 'text-pos' : 'text-neg'}> · {t(f.streak > 0 ? 'profile.form.streakWin' : 'profile.form.streakLoss', { n: Math.abs(f.streak) })}</span>}</>} />
       <StatTile label={t('profile.tile.pool')} value={width ? t(`profile.width.${width.label}` as StringKey) : '—'}
-        sub={width ? t('profile.tile.poolSub', { n: width.heroes, share: Math.round(width.top3Share * 100) }) : undefined} />
+        sub={width ? <>{t('profile.tile.poolSub', { n: width.heroes, share: Math.round(width.top3Share * 100) })}<span className="mt-1 block text-[11px] leading-[14px] opacity-80">{t('profile.tile.poolScale', { narrow: APP_CONFIG.player.narrowPool, mid: APP_CONFIG.player.widePool - 1, wide: APP_CONFIG.player.widePool })}</span></> : undefined} />
       <button type="button" onClick={() => onTab('heroes')} className="text-left transition-transform hover:-translate-y-0.5">
         <StatTile label={t('profile.tile.best')} value={best ? (bestHero ? i18n.heroName(bestHero) : `#${best.heroId}`) : '—'} tone="accent"
-          sub={best ? <>{t('profile.tile.bestSub', { edge: `${best.edge > 0 ? '+' : best.edge < 0 ? '−' : ''}${Math.abs(best.edge).toFixed(1)}`, g: `${best.games} ${i18n.plural(best.games, 'game')}` })} <span className="text-accent">{t('profile.tile.more')}</span></> : undefined} />
+          sub={best ? <>{t('profile.tile.bestSub2', { you: Math.round(best.winrate), meta: best.meta != null ? Math.round(best.meta) : '—', edge: `${best.edge > 0 ? '+' : best.edge < 0 ? '−' : ''}${Math.abs(best.edge).toFixed(1)}`, g: `${best.games} ${i18n.plural(best.games, 'game')}` })} <span className="text-accent">{t('profile.tile.more')}</span></> : undefined} />
       </button>
     </div>
   );
@@ -124,8 +125,9 @@ function HeroRow({ s, hero, sort, turbo = false }: { s: HeroStat; hero: Hero | u
         )}
       </div>
       <div className="flex-none text-right">
-        <div className={`tnum text-[14px] font-bold ${edge > 0.5 ? 'text-pos' : edge < -0.5 ? 'text-neg' : 'text-muted'}`}>{edge > 0 ? '+' : edge < 0 ? '−' : ''}{Math.abs(edge).toFixed(1)}</div>
-        <div className="tnum text-[11px] text-muted">{games} {i18n.plural(games, 'game')}</div>
+        <div title={t('profile.edge.hint')} className={`tnum text-[14px] font-bold ${edge > 0.5 ? 'text-pos' : edge < -0.5 ? 'text-neg' : 'text-muted'}`}>{edge > 0 ? '+' : edge < 0 ? '−' : ''}{Math.abs(edge).toFixed(1)}</div>
+        <div className="text-[10px] leading-3 text-muted">{t(turbo ? 'profile.edge.fifty' : sort === 'rising' ? 'profile.edge.rising' : 'profile.edge.meta')}</div>
+        <div className="tnum mt-0.5 text-[11px] text-muted">{games} {i18n.plural(games, 'game')}</div>
       </div>
     </li>
   );
@@ -450,10 +452,10 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                     {profile && historyOf(goals, profile.id).length > 0 && <GoalHistoryCard goals={historyOf(goals, profile.id)} heroById={dataset?.heroById} />}
                     {weekly && <WeeklyReviewCard state={weekly} isMe={isMe} heroById={dataset?.heroById} />}
                     <Overview profile={profile} stats={stats} width={width} recent={recentGames} heroById={dataset?.heroById} onTab={setTab} />
-              {isMe && (
+              {isMe && !me.poolWanted && (
                 <section className="panel flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
                   <div className="min-w-0 flex-1">
-                    <div className="font-display text-[16px] font-bold text-ink">{t(me.poolWanted ? 'profile.pool.on' : 'profile.pool.cta')}</div>
+                    <div className="font-display text-[16px] font-bold text-ink">{t('profile.pool.cta')}</div>
                     <p className="mt-1 text-[13px] leading-[18px] text-muted">{t('profile.pool.text')}</p>
                   </div>
                   <button type="button" onClick={() => { setPoolOn(true); onUsePool(); }} className="btn btn-accent">{t('profile.pool.cta')} →</button>
@@ -484,6 +486,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   </div>
                 </section>
               )}
+              {isMe && !turbo && dataset && <FavoritesSection favorites={me.favorites} heroes={dataset.heroes} heroById={dataset.heroById} />}
                   </>
                 )}
                 {tab === 'heroes' && (
@@ -498,12 +501,23 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   </div>
                 </div>
                 <p className="mt-2 text-[12px] leading-4 text-muted">{t(`profile.sortHint.${sort}` as StringKey)}</p>
+                <p className="mt-1.5 rounded-lg border border-dashed border-line-2 px-2.5 py-1.5 text-[12px] leading-4 text-muted">{t(turbo ? 'profile.edge.explainTurbo' : 'profile.edge.explain')}</p>
                 {!meta ? <div className="mt-4"><DiamondLoader label={t('profile.loading')} /></div> : sorted.length === 0 ? (
                   <p className="mt-3 text-[13px] text-muted">{t('profile.none')}</p>
                 ) : (
                   <ul className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-1.5">
                     {sorted.map((s) => <HeroRow key={s.heroId} s={s} hero={dataset?.heroById.get(s.heroId)} sort={sort} turbo={turbo} />)}
                   </ul>
+                )}
+                {meta && !turbo && (
+                  <dl className="mt-3 grid gap-1 text-[12px] leading-4 sm:grid-cols-2">
+                    {(['comfort', 'gem', 'under', 'meta'] as HeroLabel[]).map((l) => (
+                      <div key={l} className="flex items-start gap-2">
+                        <dt className={`badge ${LABEL_TONE[l]} flex-none !py-0 !text-[10px]`}>{t(`label.${l}` as StringKey)}</dt>
+                        <dd className="text-muted">{t(`label.hint.${l}` as StringKey)}</dd>
+                      </div>
+                    ))}
+                  </dl>
                 )}
                 {meta && <p className="mt-3 text-[11px] leading-[14px] text-muted">{turbo ? t('profile.metaTurbo') : <>{t('profile.meta', { rank: meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey) })} {t('profile.labelsNote')}</>}</p>}
               </section>

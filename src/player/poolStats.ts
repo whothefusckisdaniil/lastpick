@@ -64,16 +64,26 @@ export interface Pool {
   lowData: boolean;
   /** Overall win rate, % (null without games). */
   overall: number | null;
+  /** The player's favourite heroes: always in the pool, games or not. */
+  favorites: Set<number>;
 }
 
-/** Heroes the player really plays: enough games all-time or recently. */
-export function poolOf(profile: PlayerProfile, meta: Map<number, number> | null | undefined): Pool {
+/** A favourite hero the stats do not have yet: no games, no personal edge. */
+const noGames = (heroId: number, meta: Map<number, number> | null | undefined): HeroStat => ({
+  heroId, games: 0, win: 0, winrate: 0, meta: meta?.get(heroId) ?? null, edge: 0, score: 0, games90: 0, winrate90: null, lastPlayed: 0,
+});
+
+/** Heroes the player really plays (enough games all-time or recently), plus the favourites they pick by hand. */
+export function poolOf(profile: PlayerProfile, meta: Map<number, number> | null | undefined, favorites: number[] = []): Pool {
   const cfg = APP_CONFIG.player;
   const total = profile.win + profile.lose || profile.heroes.reduce((s, h) => s + h.games, 0);
   const lowData = total < cfg.lowDataGames;
   const stats = heroStats(profile, meta);
   const keep = stats.filter((s) => (lowData ? s.games >= cfg.lowDataMin : s.games >= cfg.minGamesAll || s.games90 >= cfg.minGames90));
-  return { heroes: new Map(keep.map((s) => [s.heroId, s])), lowData, overall: overallWinrate(profile) };
+  const heroes = new Map(keep.map((s) => [s.heroId, s]));
+  const byId = new Map(stats.map((s) => [s.heroId, s]));
+  for (const id of favorites) if (!heroes.has(id)) heroes.set(id, byId.get(id) ?? noGames(id, meta));
+  return { heroes, lowData, overall: overallWinrate(profile), favorites: new Set(favorites) };
 }
 
 /**
@@ -82,7 +92,8 @@ export function poolOf(profile: PlayerProfile, meta: Map<number, number> | null 
  * every hero"; what matters is which heroes go better than the rest.
  */
 export function comfort(s: HeroStat, overall: number | null): number {
-  if (s.meta == null) return 0;
+  // no meta, or no games on it (a favourite not played yet): nothing personal to add
+  if (s.meta == null || s.games === 0) return 0;
   const centre = overall == null ? 0 : overall - 50;
   return shrink(s.edge - centre, s.games);
 }

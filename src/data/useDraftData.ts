@@ -82,7 +82,7 @@ function initialUrlState() {
 /** Production data flow (§23): one static snapshot → local state → local scoring.
  *  Recommendations recompute automatically on every draft change (§9) — no
  *  Calculate button, no network per pick. */
-export function useDraftData({ poolProfile = null }: { poolProfile?: PlayerProfile | null } = {}) {
+export function useDraftData({ poolProfile = null, favorites = [] }: { poolProfile?: PlayerProfile | null; /** Favourite heroes: always in "My pool". */ favorites?: number[] } = {}) {
   const [urlState] = useState(initialUrlState);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loadState, setLoadState] = useState<LoadState>({ kind: 'loading' });
@@ -329,7 +329,8 @@ export function useDraftData({ poolProfile = null }: { poolProfile?: PlayerProfi
   }, [enemies.length, allies.length, synergy, missingTables.length, rankLoading, synergyLoading, position, scoreInputFor]);
 
   /** "My pool": the player's heroes against this draft, on the active rank's baselines. */
-  const pool = useMemo(() => (poolProfile ? poolOf(poolProfile, baseWinrates) : null), [poolProfile, baseWinrates]);
+  const favKey = favorites.join(',');
+  const pool = useMemo(() => (poolProfile ? poolOf(poolProfile, baseWinrates, favorites) : null), [poolProfile, baseWinrates, favKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const poolResults = useMemo(() => {
     if (!pool || !results) return null;
     const out = new Map<Exclude<PositionFilter, 'all'>, PoolResult>();

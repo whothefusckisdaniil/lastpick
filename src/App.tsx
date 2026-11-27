@@ -82,7 +82,7 @@ const SearchIcon = () => (
 
 export default function App() {
   const me = useMe();
-  const d = useDraftData({ poolProfile: me.poolOn ? me.profile : null });
+  const d = useDraftData({ poolProfile: me.poolOn ? me.profile : null, favorites: me.favorites });
   const i18n = useI18n();
   const { t } = i18n;
   const [view, setView] = useState<'draft' | 'lab' | 'validate'>('draft');
@@ -440,6 +440,7 @@ export default function App() {
                         overall={d.results}
                         profile={me.profile}
                         lowData={d.pool.lowData}
+                        favorites={d.pool.favorites}
                         summary={d.position === 'all'}
                         roles={me.roles}
                         onViewDetails={(candidate, lane) => setDetails({ c: candidate, lane })}

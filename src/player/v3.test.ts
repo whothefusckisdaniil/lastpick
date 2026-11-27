@@ -88,7 +88,7 @@ describe('dynamics by patch', () => {
 
 describe('two pools', () => {
   const stat = (heroId: number, games: number, score = 0): HeroStat => ({ heroId, games, win: games / 2, winrate: 50, meta: 50, edge: 0, score, games90: 0, winrate90: null, lastPlayed: 0 });
-  const pool = (list: HeroStat[]) => ({ heroes: new Map(list.map((s) => [s.heroId, s])), lowData: false, overall: 50 });
+  const pool = (list: HeroStat[]) => ({ heroes: new Map(list.map((s) => [s.heroId, s])), lowData: false, overall: 50, favorites: new Set<number>() });
 
   it('splits common and own heroes', () => {
     const a = pool([stat(1, 100), stat(2, 20, 3), stat(3, 10, 1)]);

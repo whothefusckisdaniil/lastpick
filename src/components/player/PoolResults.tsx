@@ -39,7 +39,7 @@ export function PoolChip({ profile, on, onToggle }: { profile: PlayerProfile; on
   );
 }
 
-function PoolRow({ x, rank, lowData, tag, onOpen }: { x: PoolCandidate; rank?: number; lowData: boolean; tag?: string; onOpen: () => void }) {
+function PoolRow({ x, rank, lowData, tag, onOpen, favorite = false }: { x: PoolCandidate; rank?: number; lowData: boolean; tag?: string; onOpen: () => void; /** One of the player's favourite heroes. */ favorite?: boolean }) {
   const i18n = useI18n();
   const { t } = i18n;
   const name = i18n.heroName(x.c.hero);
@@ -52,10 +52,11 @@ function PoolRow({ x, rank, lowData, tag, onOpen }: { x: PoolCandidate; rank?: n
           {tag ? <span className="label shrink-0 !text-[11px] text-accent">{tag}</span>
             : rank != null ? <span aria-hidden="true" className="tnum shrink-0 text-[11px] font-semibold text-muted">#{rank}</span> : null}
           <span className="truncate text-[15px] font-semibold leading-5 text-ink">{name}</span>
+          {favorite && <span className="flex-none text-[13px] text-accent" title={t('fav.badge')} aria-label={t('fav.badge')}>★</span>}
         </span>
         <span className="tnum mt-0.5 block text-[12px] leading-4 text-muted">
-          {t('pool.personal', { wr: Math.round(x.stat.winrate), g: games })}
-          {(lowData || x.stat.games < APP_CONFIG.player.minGamesAll) && <span className="badge badge-warn ml-1.5 !py-0 !text-[10px]">{t('pool.lowData')}</span>}
+          {x.stat.games === 0 ? t('fav.noGames') : t('pool.personal', { wr: Math.round(x.stat.winrate), g: games })}
+          {x.stat.games > 0 && (lowData || x.stat.games < APP_CONFIG.player.minGamesAll) && <span className="badge badge-warn ml-1.5 !py-0 !text-[10px]">{t('pool.lowData')}</span>}
         </span>
         <span className="tnum mt-0.5 block text-[12px] leading-4">
           <span className={scoreTone(x.c.finalScore)}>{t('pool.counter', { v: scoreText(x.c.finalScore) })}</span>
@@ -87,7 +88,9 @@ function VsOverall({ r }: { r: PoolResult }) {
  * the top 5 with the comparison line (one role). A role with no pool hero
  * falls back to the best heroes overall.
  */
-export function PoolResults({ results, overall, profile, lowData, summary, roles = [], onViewDetails, onOff }: {
+export function PoolResults({ results, overall, profile, lowData, summary, roles = [], favorites = new Set<number>(), onViewDetails, onOff }: {
+  /** The player's favourite heroes (always in the pool). */
+  favorites?: Set<number>;
   results: Map<Lane, PoolResult>;
   overall: Map<Lane, CandidateScore[]> | null;
   profile: PlayerProfile;
@@ -123,7 +126,7 @@ export function PoolResults({ results, overall, profile, lowData, summary, roles
         <div className="stagger grid gap-2">
           {shown.map(([lane, res], i) => {
             const top = res.list[0];
-            if (top) return <div key={lane} style={{ '--i': i } as React.CSSProperties}><PoolRow x={top} tag={title(lane)} lowData={lowData} onOpen={() => onViewDetails(top.c, lane)} /></div>;
+            if (top) return <div key={lane} style={{ '--i': i } as React.CSSProperties}><PoolRow x={top} tag={title(lane)} lowData={lowData} favorite={favorites.has(top.c.hero.id)} onOpen={() => onViewDetails(top.c, lane)} /></div>;
             const best = overall?.get(lane)?.[0];
             return best ? (
               <ResultRow key={lane} c={best} tag={`${title(lane)} · ${t('pool.overallTag')}`} style={{ '--i': i } as React.CSSProperties} onViewDetails={(c) => onViewDetails(c, lane)} />
@@ -133,6 +136,26 @@ export function PoolResults({ results, overall, profile, lowData, summary, roles
               </div>
             );
           })}
+          {(() => {
+            // favourites that are not already a lane's top pick, each on its best lane
+            const tops = new Set(shown.map(([, res]) => res.list[0]?.c.hero.id));
+            const best = new Map<number, { x: PoolCandidate; lane: Lane }>();
+            for (const [lane, res] of shown) for (const x of res.list) {
+              const id = x.c.hero.id;
+              if (!favorites.has(id) || tops.has(id)) continue;
+              const cur = best.get(id);
+              if (!cur || x.score > cur.x.score) best.set(id, { x, lane });
+            }
+            const list = [...best.values()].sort((a, b) => b.x.score - a.x.score);
+            return list.length ? (
+              <div className="mt-3">
+                <h3 className="label mb-2">★ {t('fav.inPool')}</h3>
+                <div className="grid gap-2">
+                  {list.map(({ x, lane }) => <PoolRow key={x.c.hero.id} x={x} tag={title(lane)} lowData={lowData} favorite onOpen={() => onViewDetails(x.c, lane)} />)}
+                </div>
+              </div>
+            ) : null;
+          })()}
         </div>
       ) : (
         [...results.entries()].map(([lane, res]) => (
@@ -152,17 +175,29 @@ export function PoolResults({ results, overall, profile, lowData, summary, roles
                 <div className="stagger grid gap-2">
                   {res.list.slice(0, 5).map((x, i) => (
                     <div key={x.c.hero.id} style={{ '--i': i } as React.CSSProperties}>
-                      <PoolRow x={x} rank={i + 1} lowData={lowData} onOpen={() => onViewDetails(x.c, lane)} />
+                      <PoolRow x={x} rank={i + 1} lowData={lowData} favorite={favorites.has(x.c.hero.id)} onOpen={() => onViewDetails(x.c, lane)} />
                     </div>
                   ))}
                 </div>
+                {(() => {
+                  const favs = res.list.map((x, i) => ({ x, place: i + 1 })).filter(({ x, place }) => place > 5 && favorites.has(x.c.hero.id));
+                  return favs.length ? (
+                    <div className="mt-4">
+                      <h3 className="label">★ {t('fav.inPool')}</h3>
+                      <p className="mb-2 mt-0.5 text-[12px] text-muted">{t('fav.belowTop')}</p>
+                      <div className="grid gap-2">
+                        {favs.map(({ x, place }) => <PoolRow key={x.c.hero.id} x={x} rank={place} lowData={lowData} favorite onOpen={() => onViewDetails(x.c, lane)} />)}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
                 <VsOverall r={res} />
-                {res.avoid.length > 0 && (
+                {res.avoid.filter((x) => !favorites.has(x.c.hero.id)).length > 0 && (
                   <div className="mt-5">
                     <h3 className="label">{t('pool.avoid')}</h3>
                     <p className="mb-2 mt-0.5 text-[12px] text-muted">{t('pool.avoidHint')}</p>
                     <div className="grid gap-2">
-                      {res.avoid.map((x) => <PoolRow key={x.c.hero.id} x={x} lowData={lowData} onOpen={() => onViewDetails(x.c, lane)} />)}
+                      {res.avoid.filter((x) => !favorites.has(x.c.hero.id)).map((x) => <PoolRow key={x.c.hero.id} x={x} lowData={lowData} onOpen={() => onViewDetails(x.c, lane)} />)}
                     </div>
                   </div>
                 )}

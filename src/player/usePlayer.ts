@@ -9,6 +9,8 @@ import { fetchProfile, PlayerError, type PlayerErrorKind, type PlayerProfile } f
 const ME_KEY = 'lp.playerId';
 const POOL_KEY = 'lp.pool';
 const ROLES_KEY = 'lp.roles';
+const FAV_KEY = 'lp.favorites';
+export const MAX_FAVORITES = 10;
 
 export type Role = '1' | '2' | '3' | '4' | '5';
 const ROLE_IDS: Role[] = ['1', '2', '3', '4', '5'];
@@ -19,7 +21,7 @@ export type MeStatus =
   | { kind: 'ready'; profile: PlayerProfile; stale: boolean }
   | { kind: 'error'; error: PlayerErrorKind };
 
-interface State { id: number | null; status: MeStatus; poolOn: boolean; /** Positions the player says they play (empty = not set). */ roles: Role[] }
+interface State { id: number | null; status: MeStatus; poolOn: boolean; /** Positions the player says they play (empty = not set). */ roles: Role[]; /** Heroes always in "My pool" (up to MAX_FAVORITES). */ favorites: number[] }
 
 function read<T>(key: string, parse: (v: string) => T, fallback: T): T {
   try { const v = localStorage.getItem(key); return v == null ? fallback : parse(v); } catch { return fallback; }
@@ -33,6 +35,7 @@ let state: State = {
   status: { kind: 'none' },
   poolOn: read(POOL_KEY, (v) => v === 'on', false),
   roles: read(ROLES_KEY, (v) => ROLE_IDS.filter((r) => v.split(',').includes(r)), [] as Role[]),
+  favorites: read(FAV_KEY, (v) => [...new Set(v.split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, MAX_FAVORITES), [] as number[]),
 };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<State>) => { state = { ...state, ...patch }; listeners.forEach((l) => l()); };
@@ -53,7 +56,7 @@ async function load(id: number, fresh = false) {
 /** Save (or forget) the player as "me". Loading starts right away. */
 export function setMe(id: number | null, profile?: PlayerProfile) {
   write(ME_KEY, id == null ? null : String(id));
-  if (id == null) { set({ id: null, status: { kind: 'none' }, poolOn: false, roles: [] }); write(POOL_KEY, null); write(ROLES_KEY, null); return; }
+  if (id == null) { set({ id: null, status: { kind: 'none' }, poolOn: false, roles: [], favorites: [] }); write(POOL_KEY, null); write(ROLES_KEY, null); write(FAV_KEY, null); return; }
   set({ id, status: profile ? { kind: 'ready', profile, stale: false } : { kind: 'loading' } });
   if (!profile) void load(id);
 }
@@ -69,11 +72,18 @@ export function setRoles(roles: Role[]) {
   set({ roles: clean });
 }
 
+/** Favourite heroes, in the order chosen; at most MAX_FAVORITES, no repeats. */
+export function setFavorites(ids: number[]) {
+  const clean = [...new Set(ids)].filter((n) => Number.isInteger(n) && n > 0).slice(0, MAX_FAVORITES);
+  write(FAV_KEY, clean.length ? clean.join(',') : null);
+  set({ favorites: clean });
+}
+
 export function useMe() {
   const s = useSyncExternalStore(subscribe, () => state, () => state);
   // first use with a saved ID: load it (from cache when fresh)
   useEffect(() => { if (s.id != null && s.status.kind === 'none') void load(s.id); }, [s.id, s.status.kind]);
   const refresh = useCallback(() => { if (state.id != null) void load(state.id, true); }, []);
   const profile = s.status.kind === 'ready' ? s.status.profile : null;
-  return { id: s.id, status: s.status, profile, poolOn: s.poolOn && !!profile && !profile.hidden, poolWanted: s.poolOn, roles: s.roles, refresh };
+  return { id: s.id, status: s.status, profile, poolOn: s.poolOn && !!profile && !profile.hidden, poolWanted: s.poolOn, roles: s.roles, favorites: s.favorites, refresh };
 }

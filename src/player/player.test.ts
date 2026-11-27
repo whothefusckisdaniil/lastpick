@@ -260,3 +260,38 @@ describe('v2: labels, form, avoid', () => {
     expect(seen).toBeGreaterThan(0);
   });
 });
+
+describe('favourite heroes', () => {
+  const p = profileOf(open);
+  const plain = poolOf(p, base);
+  // a hero with no games at all for this player, and one played a little (below the pool bar)
+  const neverPlayed = heroes.find((h) => !p.heroes.some((x) => x.heroId === h.id))!.id;
+  const fewGames = p.heroes.find((h) => h.games < APP_CONFIG.player.minGamesAll && h.games > 0 && !plain.heroes.has(h.heroId))!.heroId;
+
+  it('are always in the pool: no games → a zero stat, some games → their real stat', () => {
+    const pool = poolOf(p, base, [neverPlayed, fewGames]);
+    expect(pool.heroes.get(neverPlayed)).toMatchObject({ games: 0, win: 0, edge: 0, score: 0 });
+    expect(pool.heroes.get(fewGames)?.games).toBe(p.heroes.find((h) => h.heroId === fewGames)!.games);
+    expect(pool.favorites).toEqual(new Set([neverPlayed, fewGames]));
+    expect(pool.heroes.size).toBe(plain.heroes.size + 2);
+  });
+
+  it('a favourite already in the pool keeps its stat and is not added twice', () => {
+    const played = [...plain.heroes.keys()][0];
+    const pool = poolOf(p, base, [played]);
+    expect(pool.heroes.size).toBe(plain.heroes.size);
+    expect(pool.heroes.get(played)).toEqual(plain.heroes.get(played));
+  });
+
+  it('a favourite without games gets no personal bonus or penalty in the draft', () => {
+    const pool = poolOf(p, base, [neverPlayed]);
+    expect(comfort(pool.heroes.get(neverPlayed)!, pool.overall)).toBe(0);
+    const enemyIds = heroes.map((h) => h.id).filter((id) => !pool.heroes.has(id)).slice(0, 5);
+    const input = { heroes, enemyIds, matchupByEnemy: new Map(enemyIds.map((e) => [e, tables[String(e)]])), positions, heroById: new Map(heroes.map((h) => [h.id, h])), baseWinrates: base };
+    const lanes = (['1', '2', '3', '4', '5'] as const).filter((l) => (positions[neverPlayed]?.positions?.[Number(l) as 1]?.share ?? 0) >= 0.2);
+    const found = lanes.map((l) => scorePool(input, l, pool).list.find((x) => x.c.hero.id === neverPlayed)).find(Boolean);
+    expect(found).toBeTruthy();
+    expect(found!.comfortPoints).toBe(0);
+    expect(found!.score).toBeCloseTo(found!.c.finalScore, 9);
+  });
+});

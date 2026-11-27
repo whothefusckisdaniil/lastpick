@@ -71,8 +71,11 @@ export function WeeklyReviewCard({ state, isMe, heroById }: { state: WeeklyState
                         {r.winrateChange == null ? (
                           <span className="text-right text-[12px] text-muted">{t('weekly.noChange')}</span>
                         ) : (
-                          <span className={`tnum font-display text-[15px] font-bold ${r.winrateChange > 0.05 ? 'text-pos' : r.winrateChange < -0.05 ? 'text-neg' : 'text-muted'}`}>
-                            {signed(r.winrateChange, 1)} {t('weekly.pp')}
+                          <span className="text-right" title={t('weekly.ppHint')}>
+                            <span className={`tnum block font-display text-[15px] font-bold ${r.winrateChange > 0.05 ? 'text-pos' : r.winrateChange < -0.05 ? 'text-neg' : 'text-muted'}`}>
+                              {signed(r.winrateChange, 1)} {t('weekly.pp')}
+                            </span>
+                            <span className="tnum block text-[11px] text-muted">{t('weekly.ppFrom', { now: r.current.winrate!.toFixed(1), before: r.previous.winrate!.toFixed(1) })}</span>
                           </span>
                         )}
                       </div>
