@@ -86,18 +86,24 @@ function Overview({ profile, stats, width, recent, heroById, onTab }: {
   const best = sortHeroes(stats, 'strong')[0];
   const bestHero = best ? heroById?.get(best.heroId) : undefined;
   const f = recent?.length ? form(recent) : null;
+  const edge = best ? `${best.edge > 0 ? '+' : best.edge < 0 ? '−' : ''}${Math.abs(best.edge).toFixed(1)}` : '';
+  const streak = f && Math.abs(f.streak) >= 2 ? t(f.streak > 0 ? 'profile.form.streakWin' : 'profile.form.streakLoss', { n: Math.abs(f.streak) }) : null;
+  const more = t('profile.tile.info');
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
       <StatTile label={t('profile.tile.wr')} value={wr == null ? '—' : `${wr.toFixed(1)}%`} tone={wr == null ? 'ink' : wr >= 50 ? 'pos' : 'neg'}
-        sub={t('profile.tile.wrSub', { n: i18n.number(profile.win + profile.lose) })} />
+        sub={t('profile.tile.wrSub', { n: i18n.number(profile.win + profile.lose) })}
+        info={t('profile.tile.wrInfo', { w: i18n.number(profile.win), l: i18n.number(profile.lose) })} infoLabel={more} />
       <StatTile label={t('profile.tile.form')} value={f ? `${f.wins}–${f.losses}` : '—'} tone={!f ? 'ink' : f.wins >= f.losses ? 'pos' : 'neg'}
-        sub={<>{t('profile.tile.formSub')}{f && Math.abs(f.streak) >= 2 && <span className={f.streak > 0 ? 'text-pos' : 'text-neg'}> · {t(f.streak > 0 ? 'profile.form.streakWin' : 'profile.form.streakLoss', { n: Math.abs(f.streak) })}</span>}</>} />
-      <StatTile label={t('profile.tile.pool')} value={width ? t(`profile.width.${width.label}` as StringKey) : '—'}
-        sub={width ? <>{t('profile.tile.poolSub', { n: width.heroes, share: Math.round(width.top3Share * 100) })}<span className="mt-1 block text-[11px] leading-[14px] opacity-80">{t(`profile.tile.poolAbout.${width.label}` as StringKey, { narrow: APP_CONFIG.player.narrowPool, mid: APP_CONFIG.player.widePool - 1, wide: APP_CONFIG.player.widePool })}</span></> : undefined} />
-      <button type="button" onClick={() => onTab('heroes')} className="text-left transition-transform hover:-translate-y-0.5">
-        <StatTile label={t('profile.tile.best')} value={best ? (bestHero ? i18n.heroName(bestHero) : `#${best.heroId}`) : '—'} tone="accent"
-          sub={best ? <>{t('profile.tile.bestSub2', { you: Math.round(best.winrate), meta: best.meta != null ? Math.round(best.meta) : '—', edge: `${best.edge > 0 ? '+' : best.edge < 0 ? '−' : ''}${Math.abs(best.edge).toFixed(1)}`, g: `${best.games} ${i18n.plural(best.games, 'game')}` })} <span className="text-accent">{t('profile.tile.more')}</span></> : undefined} />
-      </button>
+        sub={streak ? <span className={f!.streak > 0 ? 'text-pos' : 'text-neg'}>{streak}</span> : t('profile.tile.formShort')}
+        info={f ? t('profile.tile.formInfo', { w: f.wins, l: f.losses, n: recent!.length }) : t('profile.tile.formSub')} infoLabel={more} />
+      <StatTile label={t('profile.tile.pool')} value={width ? t(`profile.width.short.${width.label}` as StringKey) : '—'}
+        sub={width ? t('profile.tile.poolShort', { n: width.heroes }) : undefined}
+        info={width ? <>{t(`profile.tile.poolAbout.${width.label}` as StringKey, { narrow: APP_CONFIG.player.narrowPool, mid: APP_CONFIG.player.widePool - 1, wide: APP_CONFIG.player.widePool })} {t('profile.tile.poolTop3', { share: Math.round(width.top3Share * 100) })}</> : undefined} infoLabel={more} />
+      <StatTile label={t('profile.tile.best')} value={best ? (bestHero ? i18n.heroName(bestHero) : `#${best.heroId}`) : '—'} tone="accent"
+        sub={best ? t('profile.tile.bestShort', { edge, g: `${best.games} ${i18n.plural(best.games, 'game')}` }) : undefined}
+        info={best ? <>{t('profile.tile.bestInfo', { you: Math.round(best.winrate), meta: best.meta != null ? Math.round(best.meta) : '—', edge })} <span className="text-accent">{t('profile.tile.more')}</span></> : undefined}
+        infoLabel={more} onClick={() => onTab('heroes')} />
     </div>
   );
 }

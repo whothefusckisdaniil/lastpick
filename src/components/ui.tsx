@@ -1,24 +1,82 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
- * A number that explains itself: what it is (label), the value, and what it
- * is measured against (sub). Used wherever a bare figure would leave people
- * guessing.
+ * "i" next to a label: the longer explanation of a number, shown on hover
+ * (mouse) or tap (touch), closed by a tap outside or Escape — so cards stay
+ * compact and the detail is one gesture away.
  */
-export function StatTile({ label, value, sub, tone = 'ink', icon, title }: {
+export function InfoTip({ children, label }: { children: ReactNode; label: string }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLSpanElement>(null);
+  // placed over everything (a portal): glass panels further down would otherwise
+  // paint over it, and it stays inside the screen on phones
+  useLayoutEffect(() => {
+    if (!open || !btn.current) return;
+    const place = () => {
+      const r = btn.current!.getBoundingClientRect();
+      const width = Math.min(280, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(r.right + 8 - width, window.innerWidth - 12 - width));
+      setPos({ top: r.bottom + 8, left, width });
+    };
+    place();
+    window.addEventListener('scroll', place, { passive: true });
+    window.addEventListener('resize', place);
+    return () => { window.removeEventListener('scroll', place); window.removeEventListener('resize', place); };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event) => {
+      const t = e.target as Node;
+      if (!btn.current?.contains(t) && !pop.current?.contains(t)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  const hover = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches;
+  return (
+    <span className="info-tip" onMouseEnter={hover ? () => setOpen(true) : undefined} onMouseLeave={hover ? () => setOpen(false) : undefined}>
+      <button ref={btn} type="button" className="info-tip-btn" aria-label={label} aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>i</button>
+      {open && pos && createPortal(
+        <span ref={pop} role="tooltip" className="info-tip-pop" style={{ top: pos.top, left: pos.left, width: pos.width }} onClick={(e) => e.stopPropagation()}>{children}</span>,
+        document.body,
+      )}
+    </span>
+  );
+}
+
+/**
+ * A number that explains itself: what it is (label), the value, a short
+ * line under it, and — behind the "i" — the full explanation.
+ */
+export function StatTile({ label, value, sub, tone = 'ink', icon, title, info, infoLabel, onClick }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   tone?: 'ink' | 'pos' | 'neg' | 'accent';
   icon?: ReactNode;
   title?: string;
+  /** The longer explanation (hover / tap the "i"). */
+  info?: ReactNode;
+  infoLabel?: string;
+  /** The whole card opens something (e.g. the hero list). */
+  onClick?: () => void;
 }) {
   const color = tone === 'pos' ? 'text-pos' : tone === 'neg' ? 'text-neg' : tone === 'accent' ? 'text-accent' : 'text-ink';
+  const clickable = onClick ? { role: 'button', tabIndex: 0, onClick, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } } : {};
   return (
-    <div className="stat-tile" title={title}>
-      <div className="label flex items-center gap-1.5">{icon}{label}</div>
-      <div className={`tnum mt-1.5 font-display text-[17px] font-bold leading-[22px] [overflow-wrap:anywhere] sm:text-[20px] sm:leading-6 ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-[12px] leading-4 text-muted">{sub}</div>}
+    <div className={`stat-tile ${onClick ? 'is-link' : ''}`} title={title} {...clickable}>
+      <div className="label flex items-center gap-1.5">
+        {icon}<span className="min-w-0 truncate">{label}</span>
+        {info && <span className="ml-auto"><InfoTip label={infoLabel ?? label}>{info}</InfoTip></span>}
+      </div>
+      <div className={`tnum mt-1.5 truncate font-display text-[18px] font-bold leading-6 sm:text-[20px] ${color}`}>{value}</div>
+      {sub && <div className="mt-0.5 truncate text-[12px] leading-4 text-muted">{sub}</div>}
     </div>
   );
 }
