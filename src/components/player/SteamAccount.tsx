@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '../../i18n';
 import { accountApi } from '../../player/account';
-import { deleteServerData, signOut, useMe } from '../../player/usePlayer';
+import { deleteServerData, useMe } from '../../player/usePlayer';
 
 const SteamMark = () => (
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor">
@@ -9,19 +9,9 @@ const SteamMark = () => (
   </svg>
 );
 
-/**
- * Steam sign-in in the profile: signed out → a button and why; signed in →
- * who, sign out, delete the data kept on the server. Hidden where the
- * server part is not available (local dev, not configured).
- */
-export function SteamAccount({ compact = false }: { compact?: boolean }) {
-  const { t } = useI18n();
-  const me = useMe();
+/** Steam sent the player back without a valid sign-in: tell once, clean the address. */
+function useSigninFailed(): boolean {
   const [failed, setFailed] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleted, setDeleted] = useState(false);
-
-  // Steam sent the player back without a valid sign-in: say so once, clean the address
   useEffect(() => {
     try {
       const u = new URL(window.location.href);
@@ -32,38 +22,62 @@ export function SteamAccount({ compact = false }: { compact?: boolean }) {
       }
     } catch { /* sandboxed */ }
   }, []);
+  return failed;
+}
 
-  if (me.account.kind === 'checking' || me.account.kind === 'unavailable') return null;
-  const back = typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/?profile';
+const backHere = () => (typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/?profile');
 
-  if (me.account.kind === 'signedOut') {
-    return (
-      <div className={compact ? 'mt-2' : 'mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-3'}>
-        <a href={accountApi.loginHref(back)} className="btn btn-ghost btn-sm"><SteamMark /> {t('steam.signIn')}</a>
-        {!compact && <span className="min-w-0 flex-1 text-[12px] leading-4 text-muted">{t('steam.why')}</span>}
-        {failed && <p className="w-full text-[12px] text-neg" role="alert">{t('steam.failed')}</p>}
-      </div>
-    );
-  }
-
+/**
+ * "Sign in through Steam" with why (signed out only). Hidden while checking
+ * and where the server part is not available.
+ */
+export function SteamAccount({ compact = false }: { compact?: boolean }) {
+  const { t } = useI18n();
+  const me = useMe();
+  const failed = useSigninFailed();
+  if (me.account.kind !== 'signedOut') return null;
   return (
-    <div className={compact ? 'mt-2' : 'mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-3'}>
-      <span className="flex items-center gap-1.5 text-[12px] text-ink"><SteamMark /> {t('steam.signedIn', { id: me.account.accountId })}</span>
-      {!compact && (
-        <span className="ml-auto flex flex-wrap gap-2">
-          <button type="button" onClick={() => void signOut()} className="btn btn-ghost btn-sm">{t('steam.signOut')}</button>
-          {confirmDelete ? (
-            <>
-              <button type="button" onClick={async () => { setDeleted(await deleteServerData()); setConfirmDelete(false); }} className="btn btn-ghost btn-sm !text-neg">{t('steam.deleteYes')}</button>
-              <button type="button" onClick={() => setConfirmDelete(false)} className="btn btn-ghost btn-sm">{t('goal.cancel')}</button>
-            </>
-          ) : (
-            <button type="button" onClick={() => setConfirmDelete(true)} className="btn btn-ghost btn-sm">{t('steam.delete')}</button>
-          )}
-        </span>
-      )}
-      {!compact && confirmDelete && <p className="w-full text-[12px] text-muted">{t('steam.deleteAsk')}</p>}
-      {!compact && deleted && <p className="w-full text-[12px] text-muted">{t('steam.deleted')}</p>}
+    <div className={compact ? 'flex flex-wrap items-center gap-2' : 'mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-3'}>
+      <a href={accountApi.loginHref(backHere())} className="btn btn-ghost btn-sm"><SteamMark /> {t('steam.signIn')}</a>
+      {!compact && <span className="min-w-0 flex-1 text-[12px] leading-4 text-muted">{t('steam.why')}</span>}
+      {failed && <p className="w-full text-[12px] text-neg" role="alert">{t('steam.failed')}</p>}
+    </div>
+  );
+}
+
+/** "Signed in through Steam" as a small mark (the profile's top bar). */
+export function SteamBadge() {
+  const { t } = useI18n();
+  const me = useMe();
+  if (me.account.kind !== 'signedIn') return null;
+  return <span className="flex items-center gap-1.5 text-[12px] text-muted" title={t('steam.signedIn', { id: me.account.accountId })}><SteamMark /> Steam</span>;
+}
+
+/**
+ * The data kept on the server for a signed-in account, and deleting it —
+ * on the privacy page, deliberately away from everyday buttons.
+ */
+export function SteamDataControls() {
+  const { t } = useI18n();
+  const me = useMe();
+  const [confirm, setConfirm] = useState(false);
+  const [deleted, setDeleted] = useState<boolean | null>(null);
+  if (me.account.kind !== 'signedIn') return null;
+  return (
+    <div className="mt-4 rounded-xl border border-line p-4">
+      <div className="flex items-center gap-1.5 text-[13px] text-ink"><SteamMark /> {t('steam.signedIn', { id: me.account.accountId })}</div>
+      <p className="mt-1 text-[13px] leading-[18px] text-muted">{t('steam.deleteAsk')}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {confirm ? (
+          <>
+            <button type="button" onClick={async () => { setDeleted(await deleteServerData()); setConfirm(false); }} className="btn btn-ghost btn-sm !border-neg !text-neg">{t('steam.deleteYes')}</button>
+            <button type="button" onClick={() => setConfirm(false)} className="btn btn-ghost btn-sm">{t('goal.cancel')}</button>
+          </>
+        ) : (
+          <button type="button" onClick={() => setConfirm(true)} className="btn btn-ghost btn-sm">{t('steam.delete')}</button>
+        )}
+      </div>
+      {deleted != null && <p className={`mt-2 text-[12px] ${deleted ? 'text-muted' : 'text-neg'}`}>{t(deleted ? 'steam.deleted' : 'steam.deleteFailed')}</p>}
     </div>
   );
 }
@@ -76,10 +90,9 @@ export function SyncStatus() {
     return <p className={`mt-2 text-[12px] ${me.syncError ? 'text-neg' : 'text-pos'}`}>{me.syncError ? t('steam.syncError') : `✓ ${t('steam.synced')}`}</p>;
   }
   if (me.account.kind === 'signedOut') {
-    const back = typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/?profile';
     return (
       <p className="mt-2 text-[12px] leading-4 text-muted">
-        {t('steam.localOnly')} <a href={accountApi.loginHref(back)} className="text-accent underline-offset-2 hover:underline">{t('steam.signIn')}</a>
+        {t('steam.localOnly')} <a href={accountApi.loginHref(backHere())} className="text-accent underline-offset-2 hover:underline">{t('steam.signIn')}</a>
       </p>
     );
   }

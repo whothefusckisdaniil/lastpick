@@ -24,7 +24,7 @@ import { GoalHistoryCard } from '../goals/GoalHistoryCard';
 import { goalActions, useGoals } from '../../goals/useGoals';
 import { StatTile, Tabs } from '../ui';
 import { FavoritesSection } from './FavoritesSection';
-import { SteamAccount } from './SteamAccount';
+import { SteamAccount, SteamBadge } from './SteamAccount';
 
 import { trackOnce, trackEvent } from '../../analytics';
 
@@ -156,6 +156,8 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   const openedVia = useRef<'saved' | 'input' | 'search' | 'link'>(urlPlayer() != null ? 'link' : 'saved');
   const [load, setLoad] = useState<Load>({ kind: 'idle' });
   const [search, setSearch] = useState<Search>({ kind: 'idle' });
+  /** With an own profile the search stays folded behind "Find another player". */
+  const [searchOpen, setSearchOpen] = useState(false);
   const [sort, setSort] = useState<HeroSort>('games');
   const [tab, setTabState] = useState<Tab>(savedTab);
   /** Normal games or Turbo: never mixed (Turbo's economy is faster). Remembered in this browser. */
@@ -275,7 +277,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     setHint(null);
     if (input.kind === 'empty') return;
     if (input.kind === 'vanity') { setHint('vanity'); return; }
-    if (input.kind === 'id') { setSearch({ kind: 'idle' }); openedVia.current = 'input'; setViewId(input.id); return; }
+    if (input.kind === 'id') { setSearch({ kind: 'idle' }); openedVia.current = 'input'; setViewId(input.id); setSearchOpen(false); return; }
     setSearch({ kind: 'loading', q: input.q });
     try {
       const hits = await searchPlayers(input.q);
@@ -353,8 +355,26 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
 
   return (
     <div className="mx-auto max-w-3xl">
+      {me.id != null && !searchOpen ? (
+        <section className="panel flex flex-wrap items-center gap-2 p-3 sm:p-4" aria-label={t('profile.title')}>
+          {viewId !== me.id && <button type="button" onClick={() => { openedVia.current = 'saved'; setViewId(me.id); }} className="btn btn-ghost btn-sm">← {t('profile.backToMine')}</button>}
+          <button type="button" onClick={() => setSearchOpen(true)} className="btn btn-ghost btn-sm">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            {t('profile.findOther')}
+          </button>
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            <SteamBadge />
+            {me.account.kind === 'signedIn'
+              ? <button type="button" onClick={() => { setMe(null); setViewId(null); }} className="btn btn-ghost btn-sm">{t('profile.signOut')}</button>
+              : <SteamAccount compact />}
+          </span>
+        </section>
+      ) : (
       <section className="panel p-4 sm:p-6">
-        <h2 className="font-display text-[20px] font-bold leading-6 text-ink">{t('profile.title')}</h2>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="font-display text-[20px] font-bold leading-6 text-ink">{t(me.id != null ? 'profile.findOther' : 'profile.title')}</h2>
+          {me.id != null && <button type="button" onClick={() => { setSearchOpen(false); setSearch({ kind: 'idle' }); }} className="btn btn-ghost btn-sm !min-h-[32px]">{t('profile.closeSearch')}</button>}
+        </div>
         {!profile && <p className="mt-1 text-[14px] leading-5 text-muted">{t('profile.lead')}</p>}
         <form onSubmit={submit} className="mt-3 flex gap-2">
           <input value={text} onChange={(e) => { setText(e.target.value); setHint(null); }} placeholder={t('profile.placeholder')} aria-label={t('profile.placeholder')}
@@ -373,7 +393,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
             <ul className="grid gap-1.5 sm:grid-cols-2">
               {search.hits.map((h) => (
                 <li key={h.id}>
-                  <button type="button" onClick={() => { openedVia.current = 'search'; setViewId(h.id); setSearch({ kind: 'idle' }); }} className="panel-2 flex w-full items-center gap-2.5 px-2.5 py-2 text-left hover:border-line-2">
+                  <button type="button" onClick={() => { openedVia.current = 'search'; setViewId(h.id); setSearch({ kind: 'idle' }); setSearchOpen(false); }} className="panel-2 flex w-full items-center gap-2.5 px-2.5 py-2 text-left hover:border-line-2">
                     <Avatar src={h.avatar} name={h.name} size={36} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[14px] font-semibold text-ink">{h.name}</span>
@@ -386,6 +406,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
           </div>
         ))}
       </section>
+      )}
 
       {load.kind === 'loading' && <div className="mt-8 flex justify-center"><DiamondLoader label={t('profile.loading')} /></div>}
       {load.kind === 'error' && (

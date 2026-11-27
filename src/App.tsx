@@ -23,6 +23,7 @@ import { ScoringPlayground } from './components/ScoringPlayground';
 import { DraftValidation } from './components/DraftValidation';
 import { MatchErrorBoundary } from './components/match/MatchErrorBoundary';
 import { Avatar, PoolChip, PoolResults } from './components/player/PoolResults';
+import { SteamDataControls } from './components/player/SteamAccount';
 import { setPoolOn, useMe } from './player/usePlayer';
 
 const SHOW_PLAYGROUND = import.meta.env.DEV;
@@ -255,6 +256,7 @@ export default function App() {
               <li>{t('privacy.player')}</li>
               <li>{t('privacy.steam')}</li>
             </ul>
+            <SteamDataControls />
             <p className="mt-3">{t('privacy.note')}</p>
           </section>
         )}
