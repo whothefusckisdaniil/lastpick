@@ -349,6 +349,17 @@ body {
     pointer-events: auto;
   }
 
+  /* loading ring */
+  .spinner {
+    display: inline-block;
+    flex: none;
+    border-radius: 999px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    opacity: 0.85;
+    animation: spin 700ms linear infinite;
+  }
+
   /* a labelled number */
   .stat-tile {
     height: 100%;
@@ -980,11 +991,13 @@ body {
 }
 
 @keyframes sweep { to { transform: translateX(100%); } }
+@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pageIn { from { opacity: 0; transform: translateY(12px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
 .page-in { animation: pageIn 420ms var(--ease-out) both; }
 
 @media (prefers-reduced-motion: reduce) {
   .best-card::after { animation: none; display: none; }
+  .spinner { animation-duration: 1.6s; }
   .page-in { animation: fadeIn 180ms ease-out both; }
   .result-row:hover:not(:disabled), .hero-tile:hover:not(:disabled) { transform: none; }
 }

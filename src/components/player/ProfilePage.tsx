@@ -22,7 +22,7 @@ import { ImprovementGoalCard, type GoalProgressState } from '../goals/Improvemen
 import { goalProgress, historyOf } from '../../goals/calculations';
 import { GoalHistoryCard } from '../goals/GoalHistoryCard';
 import { goalActions, useGoals } from '../../goals/useGoals';
-import { StatTile, Tabs } from '../ui';
+import { Spinner, StatTile, Tabs } from '../ui';
 import { FavoritesSection } from './FavoritesSection';
 import { SteamAccount, SteamBadge } from './SteamAccount';
 
@@ -158,6 +158,8 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   const [search, setSearch] = useState<Search>({ kind: 'idle' });
   /** With an own profile the search stays folded behind "Find another player". */
   const [searchOpen, setSearchOpen] = useState(false);
+  /** "Compare with me": the player to open in your Friends tab (n re-triggers the same one). */
+  const [compareWith, setCompareWith] = useState<{ id: number; n: number } | null>(null);
   const [sort, setSort] = useState<HeroSort>('games');
   const [tab, setTabState] = useState<Tab>(savedTab);
   /** Normal games or Turbo: never mixed (Turbo's economy is faster). Remembered in this browser. */
@@ -277,6 +279,8 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     setHint(null);
     if (input.kind === 'empty') return;
     if (input.kind === 'vanity') { setHint('vanity'); return; }
+    // with a profile of your own, an ID asks what to do with it (open / compare), like a found nickname
+    if (input.kind === 'id' && me.id != null && input.id !== me.id) { setSearch({ kind: 'ready', q: String(input.id), hits: [{ id: input.id, name: `ID ${input.id}`, avatar: null, lastMatch: null }] }); return; }
     if (input.kind === 'id') { setSearch({ kind: 'idle' }); openedVia.current = 'input'; setViewId(input.id); setSearchOpen(false); return; }
     setSearch({ kind: 'loading', q: input.q });
     try {
@@ -285,6 +289,23 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     } catch (err) {
       setSearch({ kind: 'error', error: err instanceof PlayerError ? err.kind : 'server' });
     }
+  }
+
+  /** Open a found player's profile. */
+  function openPlayer(id: number) {
+    openedVia.current = 'search';
+    setViewId(id);
+    setSearch({ kind: 'idle' });
+    setSearchOpen(false);
+  }
+  /** Compare a found player with you: your profile, the Friends tab, that player picked. */
+  function compareWithMe(id: number) {
+    setCompareWith((c) => ({ id, n: (c?.n ?? 0) + 1 }));
+    openedVia.current = 'saved';
+    setViewId(me.id);
+    setTab('friend');
+    setSearch({ kind: 'idle' });
+    setSearchOpen(false);
   }
 
   function makeMe() {
@@ -379,29 +400,43 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
         <form onSubmit={submit} className="mt-3 flex gap-2">
           <input value={text} onChange={(e) => { setText(e.target.value); setHint(null); }} placeholder={t('profile.placeholder')} aria-label={t('profile.placeholder')}
             autoComplete="off" className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-bg-2 px-3 text-[15px] text-ink placeholder:text-muted focus:border-accent focus:outline-none" />
-          <button type="submit" className="btn btn-accent">{t('profile.go')}</button>
+          <button type="submit" disabled={search.kind === 'loading'} className="btn btn-accent">{search.kind === 'loading' && <Spinner />}{t('profile.go')}</button>
         </form>
         {hint === 'vanity' && <p className="mt-2 text-[13px] leading-[18px] text-muted" role="alert">{t('profile.vanity')}</p>}
         <SteamAccount />
-        {search.kind === 'loading' && <p className="mt-3 text-[13px] text-muted">{t('profile.searching')}</p>}
+        {search.kind === 'loading' && <p className="mt-3 flex items-center gap-2 text-[13px] text-muted" role="status"><Spinner size={12} />{t('profile.searching')}</p>}
         {search.kind === 'error' && <p className="mt-3 text-[13px] text-neg" role="alert">{t(`profile.err.${search.error}` as StringKey)}</p>}
         {search.kind === 'ready' && (search.hits.length === 0 ? (
           <p className="mt-3 text-[13px] text-muted">{t('profile.searchNone', { q: search.q })}</p>
         ) : (
           <div className="mt-3">
-            <div className="label mb-1.5">{t('profile.searchPick')}</div>
+            <div className="label mb-1.5">{t(me.id != null ? 'profile.searchFound' : 'profile.searchPick')}</div>
             <ul className="grid gap-1.5 sm:grid-cols-2">
-              {search.hits.map((h) => (
-                <li key={h.id}>
-                  <button type="button" onClick={() => { openedVia.current = 'search'; setViewId(h.id); setSearch({ kind: 'idle' }); setSearchOpen(false); }} className="panel-2 flex w-full items-center gap-2.5 px-2.5 py-2 text-left hover:border-line-2">
+              {search.hits.map((h) => {
+                const info = (
+                  <>
                     <Avatar src={h.avatar} name={h.name} size={36} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[14px] font-semibold text-ink">{h.name}</span>
                       <span className="tnum block truncate text-[11px] text-muted">ID {h.id}{h.lastMatch ? ` · ${t('profile.lastMatch', { date: date(Date.parse(h.lastMatch)) })}` : ''}</span>
                     </span>
-                  </button>
-                </li>
-              ))}
+                  </>
+                );
+                // with a profile of your own: open it, or compare it with you
+                return me.id != null && h.id !== me.id ? (
+                  <li key={h.id} className="panel-2 px-2.5 py-2">
+                    <div className="flex items-center gap-2.5">{info}</div>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                      <button type="button" onClick={() => openPlayer(h.id)} className="btn btn-ghost btn-sm">{t('profile.openPlayer')}</button>
+                      <button type="button" onClick={() => compareWithMe(h.id)} className="btn btn-accent btn-sm">{t('profile.compareWithMe')}</button>
+                    </div>
+                  </li>
+                ) : (
+                  <li key={h.id}>
+                    <button type="button" onClick={() => openPlayer(h.id)} className="panel-2 flex w-full items-center gap-2.5 px-2.5 py-2 text-left hover:border-line-2">{info}</button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}
@@ -563,7 +598,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                 )}
                 {tab === 'friend' && (
                   <>
-              {dataset && meta && <CompareSection profile={profile} dataset={dataset} meta={meta.base} mode={mode} />}
+              {dataset && meta && <CompareSection profile={profile} dataset={dataset} meta={meta.base} mode={mode} preselect={profile.id === me.id ? compareWith : null} />}
                   </>
                 )}
                 {tab === 'card' && (

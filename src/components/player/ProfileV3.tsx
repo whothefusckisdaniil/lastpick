@@ -13,6 +13,7 @@ import { HeroPortrait } from '../HeroPortrait';
 import { DiamondLoader } from '../Brand';
 import { medalSrc } from '../Selectors';
 import { Avatar } from './PoolResults';
+import { Spinner } from '../ui';
 
 const pct = (v: number) => Math.round(v);
 const signed = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}`;
@@ -175,12 +176,13 @@ function StatCell({ s, better }: { s: HeroStat; better: boolean }) {
   );
 }
 
-export function CompareSection({ profile, dataset, meta, mode = 'normal' }: { profile: PlayerProfile; dataset: Dataset; meta: Map<number, number>; mode?: PlayMode }) {
+export function CompareSection({ profile, dataset, meta, mode = 'normal', preselect = null }: { profile: PlayerProfile; dataset: Dataset; meta: Map<number, number>; mode?: PlayMode; /** Open with this player already compared ("Compare with me" from the search). */ preselect?: { id: number; n: number } | null }) {
   const i18n = useI18n();
   const { t } = i18n;
   const [peers, setPeers] = useState<Peer[] | null>(null);
   const [text, setText] = useState('');
   const [hits, setHits] = useState<SearchHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const [hint, setHint] = useState<StringKey | null>(null);
   const [friendId, setFriendId] = useState<number | null>(null);
   const [friend, setFriend] = useState<FriendLoad>({ kind: 'idle' });
@@ -211,13 +213,19 @@ export function CompareSection({ profile, dataset, meta, mode = 'normal' }: { pr
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (searching) return;
     const input = parsePlayerInput(text);
     setHint(null);
     if (input.kind === 'empty') return;
     if (input.kind === 'vanity') { setHint('profile.vanity'); return; }
     if (input.kind === 'id') { pick(input.id); return; }
-    try { setHits(await searchPlayers(input.q, 6)); } catch (err) { setHint(`profile.err.${err instanceof PlayerError ? err.kind : 'server'}` as StringKey); }
+    setHits(null);
+    setSearching(true);
+    try { setHits(await searchPlayers(input.q, 6)); } catch (err) { setHint(`profile.err.${err instanceof PlayerError ? err.kind : 'server'}` as StringKey); } finally { setSearching(false); }
   }
+
+  // "Compare with me" from the profile search: open with that player
+  useEffect(() => { if (preselect && preselect.id !== profile.id) setFriendId(preselect.id); }, [preselect, profile.id]);
 
   const other = friend.kind === 'ready' ? friend.profile : null;
   const cmp = useMemo(() => {
@@ -272,8 +280,9 @@ export function CompareSection({ profile, dataset, meta, mode = 'normal' }: { pr
       <form onSubmit={submit} className="mt-3 flex gap-2">
         <input value={text} onChange={(e) => { setText(e.target.value); setHint(null); }} placeholder={t('profile.cmp.placeholder')} aria-label={t('profile.cmp.placeholder')}
           autoComplete="off" className="h-10 min-w-0 flex-1 rounded-xl border border-line bg-bg-2 px-3 text-[14px] text-ink placeholder:text-muted focus:border-accent focus:outline-none" />
-        <button type="submit" className="btn btn-ghost btn-sm">{t('profile.cmp.go')}</button>
+        <button type="submit" disabled={searching} className="btn btn-ghost btn-sm">{searching ? <Spinner /> : null}{t('profile.cmp.go')}</button>
       </form>
+      {searching && <p className="mt-2 flex items-center gap-2 text-[13px] text-muted" role="status"><Spinner size={12} />{t('profile.searching')}</p>}
       {hint && <p className="mt-2 text-[13px] leading-[18px] text-muted" role="alert">{t(hint)}</p>}
       {hits && (hits.length === 0 ? <p className="mt-2 text-[13px] text-muted">{t('profile.searchNone', { q: text.trim() })}</p> : (
         <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
