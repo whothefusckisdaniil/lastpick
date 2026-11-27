@@ -10,6 +10,7 @@ import { itemHasRole } from '../data/itemTags';
  *  2. Draft — up to 3 items for the enemy draft, only from what this hero
  *     buys (itemRules already filters that), with the reason. They may take
  *     the place of a weak core item (35–50%), never of solid core (≥ 50%).
+ *     An asked-for upgrade takes its component's place (Orchid → Bloodthorn).
  *  3. Team — up to 2 of the remaining slots for what your team lacks
  *     (teamNeeds.ts: damage / control / saves), from what this hero buys.
  *  4. Situational — the hero's next most popular items fill the rest, the
@@ -107,19 +108,36 @@ export function idealBuild(
     || !farm.some((y) => y !== x && (y[1] > x[1] || (y[1] === x[1] && y[0] < x[0]))))
     .filter((x) => !comps(x[0]).some((c) => keptKeys.has(c)));
 
+  // What the draft asks for (itemRules: only items this hero buys). It is
+  // looked up in everything bought later, not only in `pool`: an upgrade the
+  // hero rarely completes (Bloodthorn 10% after Orchid 24%) is left out of
+  // `pool` because its component "holds the slot" — but when the draft asks
+  // for the upgrade, the upgrade is what goes into the slot, and its
+  // components leave the build (the slot is the same item, finished).
+  const draft = suggestions
+    .map((s) => ({
+      s,
+      // the item itself; else the upgrade this hero completes it into (Force
+      // Staff → Hurricane Pike already is a Force Staff); else the rare upgrade itself
+      x: pool.find((p) => key(p[0]) === s.key)
+        ?? pool.find((p) => comps(p[0]).includes(s.key))
+        ?? allLater.find((p) => key(p[0]) === s.key),
+    }))
+    .filter((d): d is { s: ItemSuggestion; x: (typeof pool)[number] } => !!d.x)
+    .filter((d, i, all) => all.findIndex((o) => o.x[0] === d.x[0]) === i)
+    .slice(0, IDEAL.draftSlots);
+  const replacedByDraft = new Set(draft.flatMap((d) => comps(d.x[0])));
+
   const chosen = new Map<number, IdealSlot>();
   const add = (x: (typeof pool)[number], kind: SlotKind, suggestion?: ItemSuggestion, need?: TeamNeed) => {
     if (chosen.size >= IDEAL.slots || chosen.has(x[0])) return;
+    if (kind !== 'draft' && replacedByDraft.has(key(x[0]))) return;
     chosen.set(x[0], { id: x[0], key: key(x[0]), pct: x[1], minute: x[2], kind, suggestion, need });
   };
   const needOf = (x: (typeof pool)[number]) => needs.find((n) => itemHasRole(key(x[0]), n.role));
 
-  const byPct = [...pool].sort((a, b) => b[1] - a[1]);
+  const byPct = [...pool].filter((x) => !replacedByDraft.has(key(x[0]))).sort((a, b) => b[1] - a[1]);
   const core = byPct.filter((x) => x[1] >= IDEAL.corePct);
-  const draft = suggestions
-    .map((s) => ({ s, x: pool.find((p) => key(p[0]) === s.key) }))
-    .filter((d): d is { s: ItemSuggestion; x: (typeof pool)[number] } => !!d.x)
-    .slice(0, IDEAL.draftSlots);
   // Solid core (≥ 50%: BKB, the main damage) is never displaced; draft items
   // take the free slots and then those of the weakest core (35–50%).
   const solid = core.filter((x) => x[1] >= IDEAL.solidCorePct);

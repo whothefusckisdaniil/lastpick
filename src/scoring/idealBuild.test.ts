@@ -153,3 +153,45 @@ describe('counter-only items', () => {
     expect(ib.onDemand).toEqual([]);
   });
 });
+
+describe('draft items that are upgrades', () => {
+  // Storm Spirit-like (Crusader, mid): Orchid 24% "holds the slot" of Bloodthorn 10%
+  const IT: Record<number, [string, string, string[]?]> = {
+    63: ['power_treads', 'Power Treads'], 3: ['oblivion_staff', 'Oblivion Staff'], 4: ['kaya_and_sange', 'Kaya and Sange'],
+    5: ['black_king_bar', 'Black King Bar'], 6: ['parasma', 'Parasma'], 7: ['orchid', 'Orchid Malevolence', ['oblivion_staff']],
+    8: ['bloodthorn', 'Bloodthorn', ['orchid', 'hyperstone']], 9: ['shivas_guard', "Shiva's Guard"], 10: ['ultimate_scepter', "Aghanim's Scepter"],
+    11: ['sheepstick', 'Scythe of Vyse'],
+  };
+  const STORM = {
+    m: 18000, low: false, start: [], talents: [], skills: [], boots: [[63, 0.95, 9]],
+    items: [[3, 0.95, 13, 50], [4, 0.62, 24, 50], [5, 0.62, 27, 50], [6, 0.5, 32, 50], [7, 0.24, 19, 50], [8, 0.1, 35, 50], [9, 0.06, 38, 50], [10, 0.23, 40, 50], [11, 0.1, 41, 50]],
+  } as unknown as Build;
+  const sug = (key: string): ItemSuggestion => ({ key, name: key, score: 1, buildPct: 0.1, reasons: [] });
+
+  it('an asked-for upgrade goes into the slot and replaces its component', () => {
+    const ib = idealBuild(STORM, (id) => IT[id], [sug('bloodthorn'), sug('shivas_guard')]);
+    const keys = ib.slots.map((s) => s.key);
+    expect(keys).toContain('bloodthorn');
+    expect(keys).toContain('shivas_guard');
+    expect(keys).not.toContain('orchid');
+    expect(ib.slots.find((s) => s.key === 'bloodthorn')?.kind).toBe('draft');
+    // solid core stays
+    expect(keys).toEqual(expect.arrayContaining(['kaya_and_sange', 'black_king_bar', 'parasma']));
+    expect(ib.slots).toHaveLength(6);
+  });
+
+  it('an asked-for component the hero completes is answered by the upgrade (no Force Staff next to Pike)', () => {
+    const IT2: Record<number, [string, string, string[]?]> = { ...IT, 20: ['force_staff', 'Force Staff'], 21: ['hurricane_pike', 'Hurricane Pike', ['force_staff', 'dragon_lance']] };
+    const b = { ...STORM, items: [...(STORM as unknown as { items: number[][] }).items, [20, 0.4, 20, 50], [21, 0.35, 28, 50]] } as unknown as Build;
+    const ib = idealBuild(b, (id) => IT2[id], [sug('force_staff')]);
+    const keys = ib.slots.map((s) => s.key);
+    expect(keys).toContain('hurricane_pike');
+    expect(keys).not.toContain('force_staff');
+    // Pike is core here (35%): a core item that also answers the draft keeps its core label, as before
+    expect(ib.slots.filter((s) => s.key === 'hurricane_pike')).toHaveLength(1);
+  });
+
+  it('without the draft asking, the upgrade stays out (its component holds the slot)', () => {
+    expect(idealBuild(STORM, (id) => IT[id]).slots.map((s) => s.key)).not.toContain('bloodthorn');
+  });
+});
