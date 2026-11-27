@@ -9,7 +9,7 @@ import { buildDraftSearch } from '../../data/draftUrl';
 import { winChance } from '../../scoring/winChance';
 import { cachedMatch, fetchMatch, loadItemIds, loadPatches, MatchError, requestParse, waitForParse, type MatchErrorKind } from '../../match/api';
 import { parseMatchInput } from '../../match/normalize';
-import { hasRealDraft, type MatchModel } from '../../match/model';
+import { hasRealDraft, isTurbo, type MatchModel } from '../../match/model';
 import { swings as findSwings, verdict as findVerdict } from '../../match/analyze/story';
 import { awards as findAwards, economy as findEconomy, lobbyBracket, positions as findPositions } from '../../match/analyze/players';
 import { reviewPurchases } from '../../match/analyze/builds';
@@ -204,6 +204,8 @@ export default function MatchPage() {
     return () => { alive = false; };
   }, [model]);
   const norms = useMemo<Loadable<(p: MatchPlayer) => { file: NormFile; rank: string } | null>>(() => {
+    // the norms are of normal games: a Turbo match is never compared with them
+    if (model && isTurbo(model)) return { status: 'none' };
     if (normFiles === undefined) return { status: 'loading' };
     if (!normFiles || !analysis) return { status: 'none' };
     return {
@@ -216,7 +218,7 @@ export default function MatchPage() {
         return null;
       },
     };
-  }, [normFiles, analysis]);
+  }, [normFiles, analysis, model]);
 
   // whose build: you, else the one picked, else the MVP
   const mvpSlot = analysis?.awards.find((a) => a.id === 'mvp')?.slot ?? 0;
@@ -259,7 +261,8 @@ export default function MatchPage() {
       .then(([ix, hb, itemIds]: [BuildIndex | null, Awaited<ReturnType<typeof loadHeroBuild>> | null, Record<string, string> | null]) => {
         if (!alive) return;
         if (!ix && !itemIds) { setBuild({ status: 'none' }); return; }
-        const builds = pos ? Object.values(hb?.positions[pos] ?? {}) : [];
+        // popular builds are of normal games: in Turbo nothing is called "rare" against them
+        const builds = pos && !isTurbo(model) ? Object.values(hb?.positions[pos] ?? {}) : [];
         const byKey = new Map(Object.values(ix?.items ?? {}).map((v) => [v[0], v[1]]));
         const keyOfId = (itemId: number) => itemIds?.[itemId] ?? ix?.items[itemId]?.[0];
         const enemies = model.players.filter((x) => x.radiant !== p.radiant).flatMap((x) => { const h = dataset.heroById.get(x.heroId); return h ? [h] : []; });
@@ -340,7 +343,7 @@ export default function MatchPage() {
   const ctx = useMemo<RecapCtx | null>(() => {
     if (!model || !analysis || !heroById) return null;
     return {
-      m: model, i18n, heroOf, heroById, me, pos: analysis.pos.bySlot, posGuessed: analysis.pos.guessed,
+      m: model, turbo: isTurbo(model), i18n, heroOf, heroById, me, pos: analysis.pos.bySlot, posGuessed: analysis.pos.guessed,
       verdict: analysis.verdict, swings: analysis.swings, economy: analysis.economy, awards: analysis.awards,
       fights: analysis.fights, laning: analysis.laning, deaths: analysis.deaths, wards: analysis.wards, norms,
       draft, build, buildSlot, setBuildSlot: setPickedSlot, onOpenDraft: openDraft,

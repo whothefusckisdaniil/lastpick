@@ -47,6 +47,8 @@ export interface RecapCtx {
   laning: Laning | null;
   deaths: DeathsSummary | null;
   wards: WardSummary | null;
+  /** A Turbo match: no comparisons with normal-game norms or benchmarks. */
+  turbo: boolean;
   /** STRATZ norm file for a player's hero / position (lobby rank, else all ranks). */
   norms: Loadable<(p: MatchPlayer) => { file: NormFile; rank: string } | null>;
   draft: Loadable<DraftInfo>;
@@ -165,6 +167,7 @@ export function coverSlide(c: RecapCtx): Slide {
           </span>
         </div>
         <p className="mt-3 text-center text-[11px] text-muted">{t('cover.kda')}</p>
+        {c.turbo && <p className="notice mt-4 !text-[12px] !leading-4">{t('turbo.matchNote')}</p>}
         <div className="mt-5 grid gap-5">
           <TeamLine c={c} radiant />
           <TeamLine c={c} radiant={false} />
@@ -278,7 +281,7 @@ function DraftBody({ c }: { c: RecapCtx }) {
       )}
       <Note>{d.thenPatch && d.nowPatch && d.thenPatch !== d.nowPatch
         ? t('draft.note', { now: d.nowPatch, rank: rankName, then: d.thenPatch })
-        : t('draft.noteSame', { now: d.nowPatch ?? '—', rank: rankName })}</Note>
+        : t('draft.noteSame', { now: d.nowPatch ?? '—', rank: rankName })}{c.turbo ? ` ${t('draft.noteTurbo')}` : ''}</Note>
     </>
   );
 }
@@ -457,6 +460,8 @@ function gpmText(c: RecapCtx, p: MatchPlayer): string {
   const { t } = c.i18n;
   const n = nwNorm(c, p);
   if (n) return `${t('eco.gpm', { gpm: p.gpm })} · ${n.even ? t('eco.normEven') : t('eco.vsNorm', { pct: pctText(n.diff) })}`;
+  // OpenDota's benchmarks mix in normal games: not for Turbo
+  if (c.turbo) return t('eco.gpm', { gpm: p.gpm });
   const pct = p.bench.gpm;
   if (pct == null) return t('eco.gpm', { gpm: p.gpm });
   if (pct >= 0.5) return t('eco.gpmPct', { gpm: p.gpm, pct: Math.max(1, Math.round((1 - pct) * 100)) });
@@ -467,6 +472,7 @@ function gpmText(c: RecapCtx, p: MatchPlayer): string {
 function ecoTone(c: RecapCtx, p: MatchPlayer): string {
   const n = nwNorm(c, p);
   if (n) return n.even ? 'text-muted' : n.good ? 'text-pos' : 'text-neg';
+  if (c.turbo) return 'text-muted';
   return p.bench.gpm != null && p.bench.gpm <= 0.25 ? 'text-neg' : p.bench.gpm != null && p.bench.gpm >= 0.75 ? 'text-pos' : 'text-muted';
 }
 
@@ -519,7 +525,7 @@ function EconomyBody({ c }: { c: RecapCtx }) {
           </div>
         ))}
       </div>
-      <Note>{c.norms.status === 'ready' && c.m.players.some((p) => nwNorm(c, p)) ? t('eco.noteNorm') : t('eco.note')}</Note>
+      <Note>{c.turbo ? t('eco.noteTurbo') : c.norms.status === 'ready' && c.m.players.some((p) => nwNorm(c, p)) ? t('eco.noteNorm') : t('eco.note')}</Note>
     </>
   );
 }
@@ -612,7 +618,7 @@ function BuildBody({ c }: { c: RecapCtx }) {
               })}
             </ul>
             {!review.timed && <Note>{t('bs.noTimes')}</Note>}
-            <Note>{t('bs.note')}</Note>
+            <Note>{t('bs.note')}{c.turbo ? ` ${t('bs.noteTurbo')}` : ''}</Note>
           </>
         );
       })()}
@@ -1253,7 +1259,8 @@ export function useSlides(c: RecapCtx | null): Slide[] {
     if (c.m.goldAdv) list.push(flowSlide(c));
     if (c.m.parsed) list.push(fightsSlide(c));
     if (c.wards) list.push(wardsSlide(c, c.wards));
-    list.push(economySlide(c), normSlide(c));
+    list.push(economySlide(c));
+    if (!c.turbo) list.push(normSlide(c)); // norms are of normal games
     if (c.deaths) list.push(deathsSlide(c, c.deaths));
     list.push(buildSlide(c), awardsSlide(c));
     return list;

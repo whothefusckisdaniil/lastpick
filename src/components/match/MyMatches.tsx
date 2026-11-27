@@ -79,8 +79,9 @@ export function MyMatches({ heroById, current, onPick }: {
                 <button type="button" onClick={() => onPick(g.matchId, id)} aria-pressed={on}
                   aria-label={`${h ? i18n.heroName(h) : ''} · ${t(g.win ? 'match.win' : 'match.loss')} · ${g.kills}/${g.deaths}/${g.assists} · ${ago(t, g.start)}`}
                   className={`my-match ${on ? 'is-on' : ''}`}>
-                  <span className={`block h-14 w-full overflow-hidden rounded-lg border-b-[3px] ${g.win ? 'border-pos' : 'border-neg'}`}>
+                  <span className={`relative block h-14 w-full overflow-hidden rounded-lg border-b-[3px] ${g.win ? 'border-pos' : 'border-neg'}`}>
                     {h && <HeroPortrait hero={h} fill />}
+                    {g.gameMode === 23 && <span className="absolute left-1 top-1 rounded bg-black/70 px-1 text-[9px] font-bold uppercase tracking-[0.06em] text-accent">{t('match.recent.turbo')}</span>}
                   </span>
                   <span className={`mt-1.5 block text-left text-[11px] font-bold leading-[14px] ${g.win ? 'text-pos' : 'text-neg'}`}>{t(g.win ? 'match.recent.w' : 'match.recent.l')}</span>
                   <span className="tnum block text-left text-[12px] font-semibold leading-4 text-ink" title={t('cover.kda')}>{g.kills}/{g.deaths}/{g.assists}</span>

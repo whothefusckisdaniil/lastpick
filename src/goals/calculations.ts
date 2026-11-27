@@ -1,6 +1,6 @@
 import { APP_CONFIG } from '../config';
 import type { HeroGame } from '../player/api';
-import { median, REVIEW_METRICS, type PersonalReview } from '../match/review';
+import { median, minDurationFor, REVIEW_METRICS, type PersonalReview } from '../match/review';
 import type { GoalOutcome, GoalState, ImprovementGoal } from './model';
 
 /**
@@ -53,7 +53,7 @@ export function goalGames(goal: ImprovementGoal, games: HeroGame[], cfg = APP_CO
   const from = goal.createdAt / 1000;
   const until = untilMs == null ? Infinity : untilMs / 1000;
   return games
-    .filter((g) => g.gameMode === goal.gameMode && g.start > from && g.start <= until && !g.leaver && g.duration >= cfg.minDurationSec)
+    .filter((g) => g.gameMode === goal.gameMode && g.start > from && g.start <= until && !g.leaver && g.duration >= minDurationFor(goal.gameMode, cfg))
     .map((g) => ({ game: g, value: def.of(g) }))
     .filter((x): x is { game: HeroGame; value: number } => x.value != null)
     .sort((a, b) => b.game.start - a.game.start);

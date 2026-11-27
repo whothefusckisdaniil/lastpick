@@ -117,7 +117,7 @@ export function heroLabels(s: HeroStat): HeroLabel[] {
   return out;
 }
 
-export interface RecentGame { matchId: number; heroId: number; win: boolean; start: number; kills: number; deaths: number; assists: number }
+export interface RecentGame { matchId: number; heroId: number; win: boolean; start: number; kills: number; deaths: number; assists: number; /** OpenDota game mode (23 = Turbo); absent in old cache. */ gameMode?: number }
 
 /** Last games, newest first: wins, losses and the current streak (positive = wins). */
 export function form(games: RecentGame[]): { wins: number; losses: number; streak: number } {

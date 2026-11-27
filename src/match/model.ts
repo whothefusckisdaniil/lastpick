@@ -143,3 +143,7 @@ export function hasRealDraft(m: Pick<MatchModel, 'gameMode' | 'players'>): boole
 }
 
 export const team = (m: MatchModel, radiant: boolean) => m.players.filter((p) => p.radiant === radiant);
+
+/** Turbo: faster gold, experience and respawns — never compared with the norms of normal games. */
+export const TURBO_MODE = 23;
+export const isTurbo = (m: Pick<MatchModel, 'gameMode'> | { gameMode: number }) => m.gameMode === TURBO_MODE;

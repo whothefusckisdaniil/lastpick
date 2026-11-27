@@ -1,6 +1,6 @@
 import { APP_CONFIG } from '../config';
 import type { HeroGame } from '../player/api';
-import type { MatchPlayer, ReviewStat } from './model';
+import { TURBO_MODE, type MatchPlayer, type ReviewStat } from './model';
 
 /**
  * Match review: what went well, what to improve and the next focus for one
@@ -104,10 +104,13 @@ export function beatsShare(value: number, others: number[], lowerIsBetter = fals
   return score / others.length;
 }
 
+/** The shortest game worth comparing in a game mode. */
+export const minDurationFor = (gameMode: number, cfg = APP_CONFIG.review) => (gameMode === TURBO_MODE ? cfg.minDurationSecTurbo : cfg.minDurationSec);
+
 /** The previous games to compare with: before this match, full length, no leavers; same lane when enough. */
 export function baseline(history: HeroGame[], match: { id: number; start: number; gameMode: number; laneRole: number | null }, cfg = APP_CONFIG.review): { games: HeroGame[]; basis: 'lane' | 'hero' } {
   // same game mode (the loader asks for it; checked again so Turbo never meets All Pick)
-  const prev = history.filter((g) => g.gameMode === match.gameMode && g.matchId !== match.id && g.start < match.start && !g.leaver && g.duration >= cfg.minDurationSec);
+  const prev = history.filter((g) => g.gameMode === match.gameMode && g.matchId !== match.id && g.start < match.start && !g.leaver && g.duration >= minDurationFor(match.gameMode, cfg));
   if (match.laneRole != null) {
     const lane = prev.filter((g) => g.laneRole === match.laneRole);
     if (lane.length >= cfg.minGames) return { games: lane, basis: 'lane' };
@@ -138,7 +141,7 @@ export function reviewMatch(input: {
 
   if (p.accountId == null) return basic('private');
   if (p.leaver) return basic('leaver');
-  if (m.duration < cfg.minDurationSec) return basic('shortMatch');
+  if (m.duration < minDurationFor(m.gameMode, cfg)) return basic('shortMatch');
   if (!input.history) return basic('unavailable');
   const { games, basis } = baseline(input.history, { id: m.id, start: m.start, gameMode: m.gameMode, laneRole: p.laneRole }, cfg);
   if (games.length < cfg.minGames) return basic('fewGames', games.length);

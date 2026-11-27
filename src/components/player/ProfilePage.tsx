@@ -4,7 +4,7 @@ import type { StringKey } from '../../i18n/strings';
 import type { Hero } from '../../types';
 import { loadBracketTables, loadDataset, type Dataset } from '../../data/dataset';
 import { parsePlayerInput } from '../../player/parseId';
-import { loadHeroGames, loadHistory, fetchProfile, fetchRecent, PlayerError, searchPlayers, type PlayerErrorKind, type PlayerProfile, type SearchHit } from '../../player/api';
+import { loadHeroGames, loadHistory, fetchProfile, fetchRecent, TURBO_GAME_MODE, type PlayMode, PlayerError, searchPlayers, type PlayerErrorKind, type PlayerProfile, type SearchHit } from '../../player/api';
 import { rankInfo } from '../../player/rankBracket';
 import { daysSince, form, heroLabels, heroStats, overallWinrate, poolOf, poolWidth, sortHeroes, type HeroLabel, type HeroSort, type HeroStat, type RecentGame } from '../../player/poolStats';
 import { setMe, setPoolOn, setRoles, useMe, type Role } from '../../player/usePlayer';
@@ -39,6 +39,7 @@ const SORTS: HeroSort[] = ['games', 'strong', 'recent', 'rising'];
 type Tab = 'overview' | 'heroes' | 'patches' | 'friend' | 'card';
 const TABS: Tab[] = ['overview', 'heroes', 'patches', 'friend', 'card'];
 const TAB_KEY = 'lp.profileTab';
+const MODE_KEY = 'lp.profileMode';
 const savedTab = (): Tab => { try { const v = localStorage.getItem(TAB_KEY) as Tab; return TABS.includes(v) ? v : 'overview'; } catch { return 'overview'; } };
 
 const urlPlayer = (): number | null => {
@@ -100,14 +101,15 @@ function Overview({ profile, stats, width, recent, heroById, onTab }: {
   );
 }
 
-function HeroRow({ s, hero, sort }: { s: HeroStat; hero: Hero | undefined; sort: HeroSort }) {
+function HeroRow({ s, hero, sort, turbo = false }: { s: HeroStat; hero: Hero | undefined; sort: HeroSort; /** Turbo: compared with 50 %, no meta labels. */ turbo?: boolean }) {
   const i18n = useI18n();
   const { t } = i18n;
   const games = sort === 'recent' ? s.games90 : s.games;
   const sub = sort === 'recent' && s.winrate90 != null ? t('profile.recentRow', { wr: pct(s.winrate90) })
     : sort === 'rising' && s.winrate90 != null ? t('profile.risingRow', { now: pct(s.winrate90), all: pct(s.winrate) })
-      : s.meta != null ? t('profile.vsMeta', { you: pct(s.winrate), meta: pct(s.meta) }) : `${pct(s.winrate)}%`;
-  const labels = heroLabels(s);
+      : turbo ? t('profile.vsFifty', { you: pct(s.winrate) })
+        : s.meta != null ? t('profile.vsMeta', { you: pct(s.winrate), meta: pct(s.meta) }) : `${pct(s.winrate)}%`;
+  const labels = turbo ? [] : heroLabels(s);
   const edge = sort === 'rising' && s.winrate90 != null ? s.winrate90 - s.winrate : sort === 'recent' && s.winrate90 != null && s.meta != null ? s.winrate90 - s.meta : s.edge;
   return (
     <li className="panel-2 flex items-center gap-3 px-2.5 py-2">
@@ -147,6 +149,10 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   const [search, setSearch] = useState<Search>({ kind: 'idle' });
   const [sort, setSort] = useState<HeroSort>('games');
   const [tab, setTabState] = useState<Tab>(savedTab);
+  /** Normal games or Turbo: never mixed (Turbo's economy is faster). Remembered in this browser. */
+  const [mode, setModeState] = useState<PlayMode>(() => { try { return localStorage.getItem(MODE_KEY) === 'turbo' ? 'turbo' : 'normal'; } catch { return 'normal'; } });
+  const setMode = (m: PlayMode) => { setModeState(m); try { localStorage.setItem(MODE_KEY, m); } catch { /* not remembered */ } };
+  const turbo = mode === 'turbo';
   const setTab = (v: Tab) => { setTabState(v); try { localStorage.setItem(TAB_KEY, v); } catch { /* not remembered */ } };
   const [nonce, setNonce] = useState(0);
   const [dataset, setDataset] = useState<Dataset | null>(null);
@@ -166,7 +172,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     if (viewId == null) { setLoad({ kind: 'idle' }); return; }
     let alive = true;
     setLoad({ kind: 'loading' });
-    fetchProfile(viewId, { fresh: nonce > 0 })
+    fetchProfile(viewId, { fresh: nonce > 0, mode })
       .then(({ profile, stale }) => {
         if (!alive) return;
         setLoad({ kind: 'ready', profile, stale });
@@ -178,7 +184,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
       })
       .catch((e) => alive && setLoad({ kind: 'error', error: e instanceof PlayerError ? e.kind : 'server' }));
     return () => { alive = false; };
-  }, [viewId, nonce]);
+  }, [viewId, nonce, mode]);
 
   const profile = load.kind === 'ready' ? load.profile : null;
   const rank = rankInfo(profile?.rankTier);
@@ -201,7 +207,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
     const now = Date.now();
     const days = APP_CONFIG.player.weekly.days;
     setWeekly({ kind: 'loading' });
-    loadHistory(profile.id, now / 1000 - 2 * days * 86400, { fresh: nonce > 0, now })
+    loadHistory(profile.id, now / 1000 - 2 * days * 86400, { fresh: nonce > 0, now, mode })
       .then((h) => alive && setWeekly({ kind: 'ready', review: weeklyReview(h.games, now), stale: h.stale, fetchedAt: h.fetchedAt }))
       .catch(() => alive && setWeekly({ kind: 'error' }));
     return () => { alive = false; };
@@ -222,6 +228,8 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
   // meta win rates: the player's rank group, else all ranks
   useEffect(() => {
     if (!dataset || !profile) return;
+    // Turbo: the meta is of normal games — compare with 50 % instead
+    if (turbo) { setMeta({ base: new Map(dataset.heroes.map((h) => [h.id, 50])), rank: 'TURBO' }); return; }
     let alive = true;
     const want = rank && rankOptions.includes(rank.bracket) ? rank.bracket : null;
     if (!want) { setMeta({ base: dataset.baseWinrates, rank: 'ALL' }); return; }
@@ -229,9 +237,11 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
       .then((tables) => { if (alive) { const b = tables?.get(want); setMeta(b ? { base: b.baseWinrates, rank: want } : { base: dataset.baseWinrates, rank: 'ALL' }); } })
       .catch(() => alive && setMeta({ base: dataset.baseWinrates, rank: 'ALL' }));
     return () => { alive = false; };
-  }, [dataset, profile, rank?.bracket, rankOptions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dataset, profile, rank?.bracket, rankOptions, turbo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = useMemo(() => (profile && meta ? heroStats(profile, meta.base) : []), [profile, meta]);
+  /** The last matches of the chosen mode only (OpenDota's recent list mixes them). */
+  const recentGames = useMemo(() => (recent?.kind === 'ready' ? recent.games.filter((g) => (g.gameMode === TURBO_GAME_MODE) === turbo) : null), [recent, turbo]);
   const sorted = useMemo(() => sortHeroes(stats, sort).slice(0, 10), [stats, sort]);
   const pool = useMemo(() => (profile && meta ? poolOf(profile, meta.base) : null), [profile, meta]);
   const width = profile ? poolWidth(profile) : null;
@@ -268,7 +278,8 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
 
   function makeMe() {
     if (!profile) return;
-    setMe(profile.id, profile);
+    // the draft's "My pool" is built from normal games: a Turbo profile is not stored as "me"
+    setMe(profile.id, turbo ? undefined : profile);
     // the rank selector follows the profile (it can still be changed by hand)
     if (rank && rankOptions.includes(rank.bracket)) onRank(rank.bracket);
   }
@@ -289,14 +300,14 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
       };
     });
     if (width && width.heroes > 0) rows.push({ title: t(`profile.width.${width.label}` as StringKey), sub: t('profile.width.text', { n: width.heroes, share: Math.round(width.top3Share * 100) }) });
-    if (recent?.kind === 'ready' && recent.games.length) {
-      const f = form(recent.games);
-      rows.push({ title: t('card.profile.form'), sub: t('profile.form.text', { w: f.wins, l: f.losses, n: recent.games.length }), value: `${f.wins}–${f.losses}`, tone: f.wins >= f.losses ? 'pos' : 'neg' });
+    if (recentGames?.length) {
+      const f = form(recentGames);
+      rows.push({ title: t('card.profile.form'), sub: t('profile.form.text', { w: f.wins, l: f.losses, n: recentGames.length }), value: `${f.wins}–${f.losses}`, tone: f.wins >= f.losses ? 'pos' : 'neg' });
     }
     return {
       kicker: t('card.profile.kicker'),
       title: hideName ? t('card.profile.anon') : p.name,
-      subtitle: t('card.profile.sub', { rank: rank ? `${t(`medal.${rank.medal}` as StringKey)}${rank.stars ? ` ${rank.stars}` : ''}` : t('rank.all'), record, wr: wr != null ? wr.toFixed(1) : '—' }),
+      subtitle: (turbo ? `${t('profile.mode.turbo')} · ` : '') + t('card.profile.sub', { rank: rank ? `${t(`medal.${rank.medal}` as StringKey)}${rank.stars ? ` ${rank.stars}` : ''}` : t('rank.all'), record, wr: wr != null ? wr.toFixed(1) : '—' }),
       avatar: { src: hideName ? null : p.avatar, letter: hideName ? '' : (p.name.trim()[0] ?? '?').toUpperCase(), medal: rank ? medalSrc(rank.medal) : null },
       rows,
       footer: t('card.profile.footer'),
@@ -420,6 +431,15 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
             </section>
           ) : (
             <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="seg seg-sm" role="radiogroup" aria-label={t('profile.mode.label')}>
+                  {(['normal', 'turbo'] as PlayMode[]).map((m) => (
+                    <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={`seg-btn ${mode === m ? 'is-active' : ''}`}>{t(`profile.mode.${m}` as StringKey)}</button>
+                  ))}
+                </div>
+                <span className="text-[12px] text-muted">{t(turbo ? 'profile.mode.turboHint' : 'profile.mode.normalHint')}</span>
+              </div>
+              {turbo && profile.win + profile.lose === 0 && <div className="notice">{t('profile.mode.turboNone')}</div>}
               <Tabs items={TABS.map((id) => ({ id, label: t(`profile.tab.${id}` as StringKey) }))} value={tab} onChange={setTab} label={t('profile.title')} />
               <div key={tab} className="tab-in grid grid-cols-[minmax(0,1fr)] gap-4" role="tabpanel">
                 {tab === 'overview' && (
@@ -429,7 +449,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                     {goal && goalState && <ImprovementGoalCard goal={goal} state={goalState} hero={dataset?.heroById.get(goal.heroId)} onComplete={() => goalActions.complete()} />}
                     {profile && historyOf(goals, profile.id).length > 0 && <GoalHistoryCard goals={historyOf(goals, profile.id)} heroById={dataset?.heroById} />}
                     {weekly && <WeeklyReviewCard state={weekly} isMe={isMe} heroById={dataset?.heroById} />}
-                    <Overview profile={profile} stats={stats} width={width} recent={recent?.kind === 'ready' ? recent.games : null} heroById={dataset?.heroById} onTab={setTab} />
+                    <Overview profile={profile} stats={stats} width={width} recent={recentGames} heroById={dataset?.heroById} onTab={setTab} />
               {isMe && (
                 <section className="panel flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
                   <div className="min-w-0 flex-1">
@@ -444,7 +464,7 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                 <div className="mt-2">
                   {recent?.kind === 'loading' && <p className="text-[13px] text-muted">{t('profile.form.loading')}</p>}
                   {recent?.kind === 'error' && <p className="text-[13px] text-muted">{t('profile.form.error')}</p>}
-                  {recent?.kind === 'ready' && (recent.games.length ? <FormStrip games={recent.games} heroById={dataset?.heroById} /> : <p className="text-[13px] text-muted">{t('profile.form.none')}</p>)}
+                  {recent?.kind === 'ready' && (recentGames?.length ? <FormStrip games={recentGames} heroById={dataset?.heroById} /> : <p className="text-[13px] text-muted">{t(turbo ? 'profile.form.noneTurbo' : 'profile.form.none')}</p>)}
                 </div>
               </section>
               {isMe && (
@@ -482,12 +502,12 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                   <p className="mt-3 text-[13px] text-muted">{t('profile.none')}</p>
                 ) : (
                   <ul className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-1.5">
-                    {sorted.map((s) => <HeroRow key={s.heroId} s={s} hero={dataset?.heroById.get(s.heroId)} sort={sort} />)}
+                    {sorted.map((s) => <HeroRow key={s.heroId} s={s} hero={dataset?.heroById.get(s.heroId)} sort={sort} turbo={turbo} />)}
                   </ul>
                 )}
-                {meta && <p className="mt-3 text-[11px] leading-[14px] text-muted">{t('profile.meta', { rank: meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey) })} {t('profile.labelsNote')}</p>}
+                {meta && <p className="mt-3 text-[11px] leading-[14px] text-muted">{turbo ? t('profile.metaTurbo') : <>{t('profile.meta', { rank: meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey) })} {t('profile.labelsNote')}</>}</p>}
               </section>
-              {meta && dataset && stats.length > 0 && (
+              {meta && dataset && stats.length > 0 && !turbo && (
                 <LearnSection stats={stats} dataset={dataset} meta={meta.base} roles={isMe ? me.roles : []}
                   rankLabel={meta.rank === 'ALL' ? t('rank.all') : t(`rank.${meta.rank}` as StringKey)} />
               )}
@@ -495,12 +515,12 @@ export default function ProfilePage({ onRank, rankOptions, onUsePool }: { onRank
                 )}
                 {tab === 'patches' && (
                   <>
-              {dataset && <PatchSection profile={profile} heroById={dataset.heroById} />}
+              {dataset && <PatchSection profile={profile} heroById={dataset.heroById} mode={mode} />}
                   </>
                 )}
                 {tab === 'friend' && (
                   <>
-              {dataset && meta && <CompareSection profile={profile} dataset={dataset} meta={meta.base} />}
+              {dataset && meta && <CompareSection profile={profile} dataset={dataset} meta={meta.base} mode={mode} />}
                   </>
                 )}
                 {tab === 'card' && (

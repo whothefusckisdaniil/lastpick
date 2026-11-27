@@ -152,6 +152,8 @@ export const APP_CONFIG = {
   review: {
     minGames: 10,
     minDurationSec: 15 * 60,
+    // Turbo games are shorter: the same "too short to say anything" bar is lower
+    minDurationSecTurbo: 10 * 60,
     goodShare: 0.75,
     badShare: 0.25,
     // tower damage / healing per minute: judged only when the player's usual is at least this

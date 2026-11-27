@@ -5,7 +5,7 @@ import type { Hero } from '../../types';
 import type { Dataset } from '../../data/dataset';
 import { APP_CONFIG } from '../../config';
 import { parsePlayerInput } from '../../player/parseId';
-import { fetchHistory, fetchPatches, fetchPeers, fetchProfile, PlayerError, searchPlayers, type Peer, type PlayerErrorKind, type PlayerProfile, type SearchHit } from '../../player/api';
+import { fetchHistory, fetchPatches, fetchPeers, fetchProfile, PlayerError, searchPlayers, type Peer, type PlayerErrorKind, type PlayerProfile, type PlayMode, type SearchHit } from '../../player/api';
 import { rankInfo } from '../../player/rankBracket';
 import { overallWinrate, poolOf, type HeroStat } from '../../player/poolStats';
 import { byPatch, comparePools, heroesToLearn, poolOverlap, type PatchRow } from '../../player/v3';
@@ -69,7 +69,7 @@ export function LearnSection({ stats, dataset, meta, rankLabel, roles }: {
 
 type PatchLoad = { kind: 'loading' } | { kind: 'ready'; rows: PatchRow[] } | { kind: 'error' };
 
-export function PatchSection({ profile, heroById }: { profile: PlayerProfile; heroById: Map<number, Hero> }) {
+export function PatchSection({ profile, heroById, mode = 'normal' }: { profile: PlayerProfile; heroById: Map<number, Hero>; mode?: PlayMode }) {
   const i18n = useI18n();
   const { t } = i18n;
   const [load, setLoad] = useState<PatchLoad>({ kind: 'loading' });
@@ -80,13 +80,13 @@ export function PatchSection({ profile, heroById }: { profile: PlayerProfile; he
       const patches = await fetchPatches();
       const shown = [...patches].sort((a, b) => a.start - b.start).slice(-APP_CONFIG.player.patchCount);
       if (!shown.length) return [];
-      const games = await fetchHistory(profile.id, shown[0].start);
+      const games = await fetchHistory(profile.id, shown[0].start, Date.now(), mode);
       return byPatch(games, patches);
     })()
       .then((rows) => alive && setLoad({ kind: 'ready', rows }))
       .catch(() => alive && setLoad({ kind: 'error' }));
     return () => { alive = false; };
-  }, [profile.id]);
+  }, [profile.id, mode]);
 
   const rows = load.kind === 'ready' ? load.rows : [];
   const max = Math.max(1, ...rows.map((r) => r.games));
@@ -175,7 +175,7 @@ function StatCell({ s, better }: { s: HeroStat; better: boolean }) {
   );
 }
 
-export function CompareSection({ profile, dataset, meta }: { profile: PlayerProfile; dataset: Dataset; meta: Map<number, number> }) {
+export function CompareSection({ profile, dataset, meta, mode = 'normal' }: { profile: PlayerProfile; dataset: Dataset; meta: Map<number, number>; mode?: PlayMode }) {
   const i18n = useI18n();
   const { t } = i18n;
   const [peers, setPeers] = useState<Peer[] | null>(null);
@@ -196,11 +196,11 @@ export function CompareSection({ profile, dataset, meta }: { profile: PlayerProf
     if (friendId == null) { setFriend({ kind: 'idle' }); return; }
     let alive = true;
     setFriend({ kind: 'loading' });
-    fetchProfile(friendId)
+    fetchProfile(friendId, { mode })
       .then(({ profile: p }) => alive && setFriend({ kind: 'ready', profile: p }))
       .catch((e) => alive && setFriend({ kind: 'error', error: e instanceof PlayerError ? e.kind : 'server' }));
     return () => { alive = false; };
-  }, [friendId]);
+  }, [friendId, mode]);
 
   function pick(id: number) {
     setHits(null);

@@ -20,6 +20,19 @@ export class PlayerError extends Error {
   constructor(public kind: PlayerErrorKind) { super(kind); }
 }
 
+/**
+ * Normal games or Turbo. OpenDota's player endpoints leave Turbo out by
+ * default (`significant=1`); Turbo needs `game_mode=23&significant=0`.
+ * The two are never mixed: Turbo's faster economy makes its numbers
+ * incomparable with normal games.
+ */
+export type PlayMode = 'normal' | 'turbo';
+export const TURBO_GAME_MODE = 23;
+/** `path` with the mode's query appended. */
+export const withMode = (path: string, mode: PlayMode = 'normal') =>
+  mode === 'turbo' ? `${path}${path.includes('?') ? '&' : '?'}game_mode=${TURBO_GAME_MODE}&significant=0` : path;
+const modeKey = (id: number, mode: PlayMode = 'normal') => (mode === 'turbo' ? `${id}:turbo` : String(id));
+
 export interface PlayerHero {
   heroId: number;
   games: number;
@@ -45,6 +58,8 @@ export interface PlayerProfile {
   /** Unix seconds of the last game OpenDota knows, null without any. */
   lastPlayed: number | null;
   fetchedAt: number;
+  /** Which games the numbers are from (absent in old cache = normal). */
+  mode?: PlayMode;
 }
 
 /** Raw OpenDota shapes (only the fields we read). */
@@ -62,10 +77,10 @@ const heroesOf = (rows: RawHeroRow[]): PlayerHero[] =>
     .sort((a, b) => b.games - a.games);
 
 /** OpenDota answers → our profile; null = no such account. */
-export function normalizeProfile(id: number, p: RawPlayer, wl: { win: number; lose: number }, heroes: RawHeroRow[], heroes90: RawHeroRow[], now = Date.now()): PlayerProfile | null {
+export function normalizeProfile(id: number, p: RawPlayer, wl: { win: number; lose: number }, heroes: RawHeroRow[], heroes90: RawHeroRow[], now = Date.now(), mode: PlayMode = 'normal'): PlayerProfile | null {
   const hs = heroesOf(heroes);
   // an id OpenDota knows nothing about still returns a profile, with no name
-  if (!p?.profile || (!p.profile.personaname && hs.length === 0)) return null;
+  if (!p?.profile || (!p.profile.personaname && hs.length === 0 && mode === 'normal')) return null;
   const last = hs.reduce((m, h) => Math.max(m, h.lastPlayed), 0);
   return {
     id,
@@ -73,13 +88,15 @@ export function normalizeProfile(id: number, p: RawPlayer, wl: { win: number; lo
     avatar: p.profile.avatarfull || null,
     rankTier: p.rank_tier ?? null,
     leaderboard: p.leaderboard_rank ?? null,
-    hidden: !!p.profile.fh_unavailable || (wl.win + wl.lose === 0 && hs.length === 0),
+    // no Turbo games is not a hidden profile: only the normal-games view infers it from emptiness
+    hidden: !!p.profile.fh_unavailable || (mode === 'normal' && wl.win + wl.lose === 0 && hs.length === 0),
     win: wl.win,
     lose: wl.lose,
     heroes: hs,
     heroes90: heroesOf(heroes90),
     lastPlayed: last > 0 ? last : null,
     fetchedAt: now,
+    mode,
   };
 }
 
@@ -111,14 +128,14 @@ function readCache(): Record<string, Cached> {
 function writeCache(p: PlayerProfile) {
   try {
     const all = readCache();
-    all[p.id] = { v: CACHE_VERSION, profile: p };
+    all[modeKey(p.id, p.mode)] = { v: CACHE_VERSION, profile: p };
     const keep = Object.entries(all).sort((a, b) => b[1].profile.fetchedAt - a[1].profile.fetchedAt).slice(0, CACHE_MAX);
     localStorage.setItem(CACHE_KEY, JSON.stringify(Object.fromEntries(keep)));
   } catch { /* storage full or blocked */ }
 }
 
-export function cachedProfile(id: number): PlayerProfile | null {
-  return readCache()[id]?.profile ?? null;
+export function cachedProfile(id: number, mode: PlayMode = 'normal'): PlayerProfile | null {
+  return readCache()[modeKey(id, mode)]?.profile ?? null;
 }
 
 export function clearPlayerCache() {
@@ -129,18 +146,19 @@ export function clearPlayerCache() {
  * The profile: from the cache while it is fresh (unless `fresh`), otherwise
  * from OpenDota; on a rate limit or an outage the cached copy, however old.
  */
-export async function fetchProfile(id: number, opts: { fresh?: boolean; now?: number } = {}): Promise<{ profile: PlayerProfile; stale: boolean }> {
+export async function fetchProfile(id: number, opts: { fresh?: boolean; now?: number; mode?: PlayMode } = {}): Promise<{ profile: PlayerProfile; stale: boolean }> {
   const now = opts.now ?? Date.now();
-  const hit = cachedProfile(id);
+  const mode = opts.mode ?? 'normal';
+  const hit = cachedProfile(id, mode);
   if (hit && !opts.fresh && now - hit.fetchedAt < PROFILE_TTL_MS) return { profile: hit, stale: false };
   try {
     const [p, wl, heroes, heroes90] = await Promise.all([
       get<RawPlayer>(`/players/${id}`),
-      get<{ win: number; lose: number }>(`/players/${id}/wl`),
-      get<RawHeroRow[]>(`/players/${id}/heroes`),
-      get<RawHeroRow[]>(`/players/${id}/heroes?date=90`),
+      get<{ win: number; lose: number }>(withMode(`/players/${id}/wl`, mode)),
+      get<RawHeroRow[]>(withMode(`/players/${id}/heroes`, mode)),
+      get<RawHeroRow[]>(withMode(`/players/${id}/heroes?date=90`, mode)),
     ]);
-    const profile = normalizeProfile(id, p, wl, heroes ?? [], heroes90 ?? [], now);
+    const profile = normalizeProfile(id, p, wl, heroes ?? [], heroes90 ?? [], now, mode);
     if (!profile) throw new PlayerError('notFound');
     writeCache(profile);
     return { profile, stale: false };
@@ -158,14 +176,14 @@ export async function searchPlayers(q: string, limit = 12): Promise<SearchHit[]>
   return (rows ?? []).slice(0, limit).map((r) => ({ id: r.account_id, name: r.personaname || `#${r.account_id}`, avatar: r.avatarfull || null, lastMatch: r.last_match_time ?? null }));
 }
 
-export interface RawRecentMatch { match_id: number; player_slot: number; radiant_win: boolean; hero_id: number; start_time: number; kills: number; deaths: number; assists: number }
+export interface RawRecentMatch { match_id: number; player_slot: number; radiant_win: boolean; hero_id: number; start_time: number; kills: number; deaths: number; assists: number; game_mode?: number }
 
 const RECENT_KEY = 'lp.playerRecent';
 
 /** Raw /recentMatches → our games, newest first. Radiant slots are 0–127. */
 export function normalizeRecent(rows: RawRecentMatch[]): RecentGame[] {
   return (rows ?? [])
-    .map((r) => ({ matchId: r.match_id, heroId: r.hero_id, win: (r.player_slot < 128) === !!r.radiant_win, start: r.start_time, kills: r.kills, deaths: r.deaths, assists: r.assists }))
+    .map((r) => ({ matchId: r.match_id, heroId: r.hero_id, win: (r.player_slot < 128) === !!r.radiant_win, start: r.start_time, kills: r.kills, deaths: r.deaths, assists: r.assists, gameMode: r.game_mode ?? 0 }))
     .sort((a, b) => b.start - a.start);
 }
 
@@ -175,7 +193,8 @@ export async function fetchRecent(id: number, opts: { fresh?: boolean; now?: num
   let all: Record<string, { at: number; games: RecentGame[] }> = {};
   try { all = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '{}'); } catch { /* ignore */ }
   const hit = all[id];
-  if (hit && !opts.fresh && now - hit.at < PROFILE_TTL_MS) return hit.games;
+  // entries from before game modes were stored are refetched (Turbo must be told apart)
+  if (hit && !opts.fresh && now - hit.at < PROFILE_TTL_MS && hit.games.every((g) => g.gameMode != null)) return hit.games;
   try {
     const games = normalizeRecent(await get<RawRecentMatch[]>(`/players/${id}/recentMatches`));
     try {
@@ -242,48 +261,49 @@ export interface History {
 
 type StoredHistory = { v: number; at: number; since: number; games: [number, 0 | 1, number][] };
 
-const historyMem = new Map<number, { games: HistoryGame[]; fetchedAt: number; since: number }>();
+const historyMem = new Map<string, { games: HistoryGame[]; fetchedAt: number; since: number }>();
 
-function readStored(id: number): { games: HistoryGame[]; fetchedAt: number; since: number } | null {
+function readStored(key: string): { games: HistoryGame[]; fetchedAt: number; since: number } | null {
   try {
     const all = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '{}') as Record<string, StoredHistory>;
-    const h = all[id];
+    const h = all[key];
     if (!h || h.v !== HISTORY_VERSION) return null;
     return { fetchedAt: h.at, since: h.since, games: h.games.map(([heroId, w, start]) => ({ heroId, win: w === 1, start })) };
   } catch { return null; }
 }
 
-function store(id: number, games: HistoryGame[], fetchedAt: number, nowSec: number) {
+function store(key: string, games: HistoryGame[], fetchedAt: number, nowSec: number) {
   try {
     const since = Math.floor(nowSec - RECENT_DAYS * 86400);
     const all = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '{}') as Record<string, StoredHistory>;
-    all[id] = { v: HISTORY_VERSION, at: fetchedAt, since, games: games.filter((g) => g.start >= since).map((g) => [g.heroId, g.win ? 1 : 0, g.start]) };
+    all[key] = { v: HISTORY_VERSION, at: fetchedAt, since, games: games.filter((g) => g.start >= since).map((g) => [g.heroId, g.win ? 1 : 0, g.start]) };
     const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, CACHE_MAX);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(Object.fromEntries(keep)));
   } catch { /* storage full or blocked */ }
 }
 
 /** Every game since `sinceSec` (hero, result, date), from the cache while fresh unless `fresh`. */
-export async function loadHistory(id: number, sinceSec: number, opts: { fresh?: boolean; now?: number } = {}): Promise<History> {
+export async function loadHistory(id: number, sinceSec: number, opts: { fresh?: boolean; now?: number; mode?: PlayMode } = {}): Promise<History> {
   const now = opts.now ?? Date.now();
+  const key = modeKey(id, opts.mode);
   const nowSec = now / 1000;
   const covers = (h: { since: number; fetchedAt: number } | null | undefined) => !!h && h.since <= sinceSec + 60;
   const fresh = (h: { fetchedAt: number }) => now - h.fetchedAt < HISTORY_TTL_MS;
   const pick = (h: { games: HistoryGame[]; fetchedAt: number; since: number }, stale: boolean): History =>
     ({ games: h.games.filter((g) => g.start >= sinceSec), fetchedAt: h.fetchedAt, since: h.since, stale });
 
-  const mem = historyMem.get(id);
+  const mem = historyMem.get(key);
   if (!opts.fresh && mem && covers(mem) && fresh(mem)) return pick(mem, false);
-  const saved = readStored(id);
-  if (!opts.fresh && saved && covers(saved) && fresh(saved)) { historyMem.set(id, saved); return pick(saved, false); }
+  const saved = readStored(key);
+  if (!opts.fresh && saved && covers(saved) && fresh(saved)) { historyMem.set(key, saved); return pick(saved, false); }
 
   const days = Math.max(1, Math.ceil((nowSec - sinceSec) / 86400));
   try {
-    const games = normalizeHistory(await get<RawHistoryRow[]>(`/players/${id}/matches?date=${days}&project=hero_id&project=start_time`));
+    const games = normalizeHistory(await get<RawHistoryRow[]>(withMode(`/players/${id}/matches?date=${days}&project=hero_id&project=start_time`, opts.mode)));
     const entry = { games, fetchedAt: now, since: Math.floor(nowSec - days * 86400) };
     // keep the widest fresh window in memory
-    if (!mem || !fresh(mem) || entry.since <= mem.since || opts.fresh) historyMem.set(id, entry);
-    store(id, games, now, nowSec);
+    if (!mem || !fresh(mem) || entry.since <= mem.since || opts.fresh) historyMem.set(key, entry);
+    store(key, games, now, nowSec);
     return pick(entry, false);
   } catch (e) {
     const fallback = [mem, saved].filter((h): h is NonNullable<typeof h> => covers(h)).sort((a, b) => b.fetchedAt - a.fetchedAt)[0];
@@ -293,8 +313,8 @@ export async function loadHistory(id: number, sinceSec: number, opts: { fresh?: 
 }
 
 /** The games since `sinceSec` (dynamics by patch). */
-export async function fetchHistory(id: number, sinceSec: number, now = Date.now()): Promise<HistoryGame[]> {
-  return (await loadHistory(id, sinceSec, { now })).games;
+export async function fetchHistory(id: number, sinceSec: number, now = Date.now(), mode: PlayMode = 'normal'): Promise<HistoryGame[]> {
+  return (await loadHistory(id, sinceSec, { now, mode })).games;
 }
 
 /** Test hook. */
